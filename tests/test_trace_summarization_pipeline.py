@@ -6,22 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from acreta.config.settings import reload_config
 from acreta.memory import summarization_pipeline as pipeline
-from acreta.sessions import catalog
 
 
-def _setup_env(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("ACRETA_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ACRETA_MEMORY_DIR", str(tmp_path / "memory"))
-    monkeypatch.setenv("ACRETA_INDEX_DIR", str(tmp_path / "index"))
-    monkeypatch.setenv("ACRETA_SESSIONS_DB", str(tmp_path / "index" / "sessions.sqlite3"))
-    monkeypatch.setenv("ACRETA_MEMORY_SCOPE", "global_only")
-    reload_config()
-    catalog.init_sessions_db()
-
-
-def _index_session(tmp_path, run_id: str) -> Path:
+def test_summarize_trace_from_session_file_returns_frontmatter_fields(tmp_path, monkeypatch) -> None:
+    run_id = "run-summary-1"
     session_path = tmp_path / "sessions" / f"{run_id}.jsonl"
     session_path.parent.mkdir(parents=True, exist_ok=True)
     session_path.write_text(
@@ -29,20 +18,6 @@ def _index_session(tmp_path, run_id: str) -> Path:
         '{"role":"assistant","content":"Implemented bounded retries and dead-letter fallback."}\n',
         encoding="utf-8",
     )
-    catalog.index_session_for_fts(
-        run_id=run_id,
-        agent_type="cursor",
-        repo_name="acreta",
-        content="queue retry and heartbeat fix",
-        session_path=str(session_path),
-    )
-    return session_path
-
-
-def test_summarize_session_trace_returns_frontmatter_fields(tmp_path, monkeypatch) -> None:
-    _setup_env(tmp_path, monkeypatch)
-    run_id = "run-summary-1"
-    session_path = _index_session(tmp_path, run_id)
 
     monkeypatch.setattr(
         pipeline,
@@ -59,10 +34,12 @@ def test_summarize_session_trace_returns_frontmatter_fields(tmp_path, monkeypatc
             "repo_name": "acreta",
         },
     )
-    result = pipeline.summarize_session_trace(run_id)
+    summary = pipeline.summarize_trace_from_session_file(
+        session_path,
+        metadata={"run_id": run_id, "repo_name": "acreta"},
+        metrics={},
+    )
 
-    assert result["status"] == "completed"
-    summary = result["summary"]
     assert summary["title"]
     assert summary["description"]
     assert summary["date"]
@@ -81,6 +58,6 @@ def test_summarize_trace_from_session_file_raises_on_missing_file(tmp_path) -> N
 def test_summarization_pipeline_module_is_memory_boundary() -> None:
     source = Path(pipeline.__file__).read_text(encoding="utf-8")
     assert "dspy.RLM" in source
-    assert "FileStore" not in source
+    assert "MemoryRepository" not in source
     assert "search_memory" not in source
     assert "AcretaAgent" not in source

@@ -6,7 +6,6 @@ import json
 import os
 
 from acreta.config.settings import reload_config
-from acreta.memory.extract_pipeline import extract_session_memories
 from acreta.sessions import catalog
 
 
@@ -41,23 +40,23 @@ def test_update_session_writeback_fields(tmp_path):
     assert row["outcome"] == "mostly_achieved"
 
 
-def test_extract_session_memories_writes_basic_tags(tmp_path):
+def test_session_extract_writeback_accepts_tag_updates(tmp_path):
     _setup_env(tmp_path)
     run_id = "run-tags-1"
-    session_path = tmp_path / "sessions" / f"{run_id}.jsonl"
-    session_path.parent.mkdir(parents=True, exist_ok=True)
-    session_path.write_text('{"role":"assistant","content":"ok"}\n', encoding="utf-8")
     catalog.index_session_for_fts(
         run_id=run_id,
         agent_type="codex",
         repo_name="acreta",
         content="initial content",
         summary_text="brief",
-        session_path=str(session_path),
     )
 
-    result = extract_session_memories(run_id, no_llm=True)
-    assert result["status"] == "completed"
+    ok = catalog.update_session_extract_fields(
+        run_id,
+        tags='["agent:codex","repo:acreta"]',
+        outcome="completed",
+    )
+    assert ok is True
 
     row = catalog.fetch_session_doc(run_id)
     assert row is not None

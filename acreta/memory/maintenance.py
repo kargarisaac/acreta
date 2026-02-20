@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from acreta.config.settings import get_config
-from acreta.memory.models import Learning, LifecycleState
-from acreta.memory.store import FileStore
+from acreta.memory.memory_record import Learning, LifecycleState
+from acreta.memory.memory_repo import MemoryRepository
 
 
 @dataclass(frozen=True)
@@ -30,13 +30,13 @@ def _rank_key(learning: Learning) -> tuple[float, int, datetime, str]:
     )
 
 
-def _learning_path(store: FileStore, learning: Learning) -> Path:
+def _learning_path(store: MemoryRepository, learning: Learning) -> Path:
     """Return canonical markdown path for a learning in this store."""
     return store.memory_dir / learning.primitive_dirname() / learning.filename()
 
 
 def postprocess_learnings(
-    store: FileStore,
+    store: MemoryRepository,
     learning_ids: list[str],
     session_id: str,
     session_doc: dict | None = None,
@@ -86,7 +86,7 @@ def cleanup_learnings(
     dry_run: bool = False,
 ) -> dict[str, object]:
     """Remove hash duplicates, re-ID collisions, and optionally emit a report."""
-    store = FileStore(memory_dir)
+    store = MemoryRepository(memory_dir)
     records: list[LearningRecord] = []
     for path in store.iter_files():
         try:
@@ -188,7 +188,7 @@ def cleanup_learnings(
 def apply_decay() -> None:
     """Apply confidence decay and lifecycle transitions by staleness."""
     config = get_config()
-    store = FileStore(config.memory_dir)
+    store = MemoryRepository(config.memory_dir)
     learnings = store.list_all()
     now = datetime.now(timezone.utc)
     for learning in learnings:
@@ -210,7 +210,7 @@ def apply_decay() -> None:
 def consolidate_learnings() -> None:
     """Merge duplicate learnings by content hash into one primary record."""
     config = get_config()
-    store = FileStore(config.memory_dir)
+    store = MemoryRepository(config.memory_dir)
     learnings = store.list_all()
     by_hash: dict[str, list[Learning]] = {}
     for learning in learnings:
@@ -242,7 +242,7 @@ if __name__ == "__main__":
 
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
-        store = FileStore(root)
+        store = MemoryRepository(root)
         first = Learning(id=store.generate_id(), title="Queue lifecycle", body="Keep queue states consistent.")
         second = Learning(id=store.generate_id(), title="Queue lifecycle", body="Keep queue states consistent.")
         store.write(first)

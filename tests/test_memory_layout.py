@@ -2,26 +2,26 @@
 
 from __future__ import annotations
 
-from acreta.memory.layout import build_layout, ensure_layout, reset_data_root
+from acreta.memory.memory_repo import build_memory_paths, ensure_memory_paths, reset_memory_root
 
 
-def test_ensure_layout_creates_canonical_folders(tmp_path) -> None:
-    layout = build_layout(tmp_path)
-    ensure_layout(layout)
+def test_ensure_memory_paths_creates_canonical_folders(tmp_path) -> None:
+    layout = build_memory_paths(tmp_path)
+    ensure_memory_paths(layout)
 
     assert (layout.memory_dir / "decisions").exists()
     assert (layout.memory_dir / "learnings").exists()
-    assert (layout.memory_dir / "conventions").exists()
-    assert (layout.memory_dir / "context").exists()
+    assert (layout.memory_dir / "summaries").exists()
     assert (layout.meta_dir / "state").exists()
     assert (layout.meta_dir / "evidence").exists()
     assert (layout.meta_dir / "traces" / "sessions").exists()
+    assert layout.workspace_dir.exists()
     assert layout.index_dir.exists()
 
 
-def test_reset_data_root_recreates_clean_layout(tmp_path) -> None:
-    layout = build_layout(tmp_path)
-    ensure_layout(layout)
+def test_reset_memory_root_recreates_clean_layout(tmp_path) -> None:
+    layout = build_memory_paths(tmp_path)
+    ensure_memory_paths(layout)
 
     learning_path = layout.memory_dir / "learnings" / "example--l20260220abcd.md"
     learning_path.write_text("seed", encoding="utf-8")
@@ -30,7 +30,7 @@ def test_reset_data_root_recreates_clean_layout(tmp_path) -> None:
     stale_index = layout.index_dir / "fts.sqlite3"
     stale_index.write_text("", encoding="utf-8")
 
-    result = reset_data_root(layout)
+    result = reset_memory_root(layout)
 
     removed = set(result["removed"])
     assert str(layout.memory_dir) in removed

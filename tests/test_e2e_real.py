@@ -85,7 +85,7 @@ def test_extract_pipeline_end_to_end_without_network(tmp_path: Path, monkeypatch
 
         monkeypatch.setattr(
             pipeline,
-            "extract_memories_from_session_file",
+            "_extract_candidates_with_rlm",
             lambda *_args, **_kwargs: [
                 {
                     "primitive": "learning",
@@ -101,11 +101,14 @@ def test_extract_pipeline_end_to_end_without_network(tmp_path: Path, monkeypatch
                 }
             ],
         )
-        result = pipeline.extract_session_memories("run-e2e-1", no_llm=False)
+        result = pipeline.extract_memories_from_session_file(
+            session_path,
+            metadata={"run_id": "run-e2e-1"},
+            metrics={},
+        )
 
-    assert result["status"] == "completed"
-    assert len(result["candidates"]) == 1
-    assert result["candidates"][0]["title"] == "Queue lifecycle contract"
+    assert len(result) == 1
+    assert result[0]["title"] == "Queue lifecycle contract"
 
 
 if __name__ == "__main__":

@@ -1,43 +1,21 @@
-"""test extract lead authority."""
+"""Tests for path-first extract pipeline behavior."""
 
 from __future__ import annotations
 
-from acreta.config.settings import reload_config
+from pathlib import Path
+
+import pytest
+
 from acreta.memory import extract_pipeline as pipeline
-from acreta.sessions import catalog
 
 
-def _setup_env(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("ACRETA_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ACRETA_MEMORY_DIR", str(tmp_path / "memory"))
-    monkeypatch.setenv("ACRETA_INDEX_DIR", str(tmp_path / "index"))
-    monkeypatch.setenv("ACRETA_SESSIONS_DB", str(tmp_path / "index" / "sessions.sqlite3"))
-    monkeypatch.setenv("ACRETA_MEMORY_SCOPE", "global_only")
-    reload_config()
-    catalog.init_sessions_db()
-
-
-def _index_session(tmp_path, run_id: str) -> None:
-    session_path = tmp_path / "sessions" / f"{run_id}.jsonl"
-    session_path.parent.mkdir(parents=True, exist_ok=True)
+def test_extract_memories_from_session_file_returns_candidates(tmp_path, monkeypatch) -> None:
+    session_path = tmp_path / "session.jsonl"
     session_path.write_text('{"role":"assistant","content":"ok"}\n', encoding="utf-8")
-    catalog.index_session_for_fts(
-        run_id=run_id,
-        agent_type="cursor",
-        repo_name="acreta",
-        content="session content",
-        session_path=str(session_path),
-    )
-
-
-def test_extract_session_memories_returns_candidates(tmp_path, monkeypatch) -> None:
-    _setup_env(tmp_path, monkeypatch)
-    run_id = "run-extract-1"
-    _index_session(tmp_path, run_id)
 
     monkeypatch.setattr(
         pipeline,
-        "extract_memories_from_session_file",
+        "_extract_candidates_with_rlm",
         lambda *_args, **_kwargs: [
             {
                 "primitive": "learning",
@@ -46,34 +24,20 @@ def test_extract_session_memories_returns_candidates(tmp_path, monkeypatch) -> N
                 "confidence": 0.9,
             },
             {
-                "primitive": "learning",
-                "title": "Cursor checks",
-                "body": "Validate cursor session metadata before enqueueing jobs.",
+                "primitive": "decision",
+                "title": "Trace-path only",
+                "body": "Lead runtime should receive only trace_path, not full trace payload.",
                 "confidence": 0.8,
             },
         ],
     )
 
-    result = pipeline.extract_session_memories(run_id, no_llm=False)
-
-    assert result["status"] == "completed"
-    assert len(result["candidates"]) == 2
-    assert "agent:cursor" in result["tags"]
-    assert "repo:acreta" in result["tags"]
+    result = pipeline.extract_memories_from_session_file(session_path, metadata={"run_id": "run-1"}, metrics={})
+    assert len(result) == 2
+    assert result[0]["primitive"] == "learning"
+    assert result[1]["primitive"] == "decision"
 
 
-def test_extract_session_memories_no_llm_skips_extraction(tmp_path, monkeypatch) -> None:
-    _setup_env(tmp_path, monkeypatch)
-    run_id = "run-extract-2"
-    _index_session(tmp_path, run_id)
-
-    monkeypatch.setattr(
-        pipeline,
-        "extract_memories_from_session_file",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not be called when no_llm=True")),
-    )
-
-    result = pipeline.extract_session_memories(run_id, no_llm=True)
-
-    assert result["status"] == "completed"
-    assert result["candidates"] == []
+def test_extract_memories_from_session_file_raises_on_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        pipeline.extract_memories_from_session_file(tmp_path / "missing.jsonl", metadata={}, metrics={})

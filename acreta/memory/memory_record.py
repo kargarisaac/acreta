@@ -1,4 +1,4 @@
-"""Core memory domain models, markdown serialization, and sidecar metadata types."""
+"""Canonical memory taxonomy and markdown record schemas."""
 
 from __future__ import annotations
 
@@ -13,13 +13,39 @@ import yaml
 from pydantic import BaseModel, Field
 
 
-class PrimitiveType(str, Enum):
-    """Top-level memory primitive folder types."""
+class MemoryType(str, Enum):
+    """Canonical memory types used across runtime, pipelines, and storage."""
 
     decision = "decision"
     learning = "learning"
-    convention = "convention"
-    context = "context"
+    summary = "summary"
+
+
+MEMORY_TYPE_DEFINITIONS: dict[MemoryType, str] = {
+    MemoryType.decision: "A concrete choice that should remain stable unless explicitly changed.",
+    MemoryType.learning: "A reusable lesson, fix, pattern, or friction signal from coding work.",
+    MemoryType.summary: "An episodic trace summary for one run, always written to summaries.",
+}
+
+MEMORY_TYPE_FOLDERS: dict[MemoryType, str] = {
+    MemoryType.decision: "decisions",
+    MemoryType.learning: "learnings",
+    MemoryType.summary: "summaries",
+}
+
+MEMORY_TYPE_EXAMPLES: dict[MemoryType, str] = {
+    MemoryType.decision: "Use heartbeat every 15s with max_attempts=3.",
+    MemoryType.learning: "Patch exact file path first to avoid global replace mistakes.",
+    MemoryType.summary: "Session fixed queue duplicate claims and added retry metrics.",
+}
+
+
+def memory_folder(memory_type: MemoryType) -> str:
+    """Return canonical folder name for one memory type."""
+    return MEMORY_TYPE_FOLDERS[memory_type]
+
+
+PrimitiveType = MemoryType
 
 
 class LearningType(str, Enum):
@@ -64,9 +90,14 @@ class Learning(BaseModel):
     kind: str = "insight"
     status: str = "active"
     decided_by: str = "agent"
-    scope: str = "project"
-    area: str = "general"
     related: list[str] = Field(default_factory=list)
+    description: str | None = None
+    date: str | None = None
+    time: str | None = None
+    coding_agent: str | None = None
+    raw_trace_path: str | None = None
+    run_id: str | None = None
+    repo_name: str | None = None
     learning_type: LearningType = LearningType.insight
     lifecycle_state: LifecycleState = LifecycleState.candidate
     confidence: float = 0.7
@@ -113,7 +144,7 @@ class Learning(BaseModel):
 
     def primitive_dirname(self) -> str:
         """Return primitive folder name for markdown storage."""
-        return f"{self.primitive.value}s"
+        return memory_folder(self.primitive)
 
     def resolve_related_ids(self) -> list[str]:
         """Return cleaned explicit related reference IDs/slugs."""
@@ -128,8 +159,13 @@ class Learning(BaseModel):
             "kind": self.kind,
             "status": self.status,
             "decided_by": self.decided_by,
-            "scope": self.scope,
-            "area": self.area,
+            "description": self.description or "",
+            "date": self.date or "",
+            "time": self.time or "",
+            "coding_agent": self.coding_agent or "",
+            "raw_trace_path": self.raw_trace_path or "",
+            "run_id": self.run_id or "",
+            "repo_name": self.repo_name or "",
             "tags": self._normalize_list(self.tags),
             "related": self._normalize_list(self.related),
         }
@@ -157,10 +193,21 @@ class Learning(BaseModel):
             base["decided_by"] = self.decided_by
         elif self.primitive == PrimitiveType.learning:
             base["kind"] = self.kind
-        elif self.primitive == PrimitiveType.convention:
-            base["scope"] = self.scope
-        elif self.primitive == PrimitiveType.context:
-            base["area"] = self.area
+        elif self.primitive == PrimitiveType.summary:
+            if self.description:
+                base["description"] = self.description
+            if self.date:
+                base["date"] = self.date
+            if self.time:
+                base["time"] = self.time
+            if self.coding_agent:
+                base["coding_agent"] = self.coding_agent
+            if self.raw_trace_path:
+                base["raw_trace_path"] = self.raw_trace_path
+            if self.run_id:
+                base["run_id"] = self.run_id
+            if self.repo_name:
+                base["repo_name"] = self.repo_name
         return base
 
     def to_markdown(self) -> str:
@@ -232,10 +279,8 @@ class Learning(BaseModel):
         else:
             if "decided_by" in fm or "status" in fm:
                 primitive = PrimitiveType.decision
-            elif "scope" in fm:
-                primitive = PrimitiveType.convention
-            elif "area" in fm:
-                primitive = PrimitiveType.context
+            elif "raw_trace_path" in fm or "coding_agent" in fm or "date" in fm or "time" in fm:
+                primitive = PrimitiveType.summary
             else:
                 primitive = PrimitiveType.learning
 
@@ -252,9 +297,14 @@ class Learning(BaseModel):
             kind=str(fm.get("kind") or "insight"),
             status=str(fm.get("status") or "active"),
             decided_by=str(fm.get("decided_by") or "agent"),
-            scope=str(fm.get("scope") or "project"),
-            area=str(fm.get("area") or "general"),
             related=_coerce_list(fm.get("related")),
+            description=(str(fm.get("description")) if fm.get("description") is not None else None),
+            date=(str(fm.get("date")) if fm.get("date") is not None else None),
+            time=(str(fm.get("time")) if fm.get("time") is not None else None),
+            coding_agent=(str(fm.get("coding_agent")) if fm.get("coding_agent") is not None else None),
+            raw_trace_path=(str(fm.get("raw_trace_path")) if fm.get("raw_trace_path") is not None else None),
+            run_id=(str(fm.get("run_id")) if fm.get("run_id") is not None else None),
+            repo_name=(str(fm.get("repo_name")) if fm.get("repo_name") is not None else None),
             learning_type=LearningType(str(raw_type)),
             lifecycle_state=LifecycleState(str(fm.get("lifecycle_state", "candidate"))),
             confidence=float(fm.get("confidence", 0.7)),

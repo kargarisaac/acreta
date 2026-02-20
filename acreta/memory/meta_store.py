@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from acreta.memory.models import EvidenceMeta, Learning, StateMeta
+from acreta.memory.memory_record import EvidenceMeta, Learning, StateMeta
 
 
 class MetaStore:
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     """Run a real-path smoke test for sidecar write/load/delete flow."""
     from tempfile import TemporaryDirectory
 
-    from acreta.memory.models import PrimitiveType
+    from acreta.memory.memory_record import PrimitiveType
 
     with TemporaryDirectory() as tmp_dir:
         store = MetaStore(Path(tmp_dir) / "meta")

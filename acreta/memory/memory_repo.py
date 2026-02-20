@@ -1,21 +1,81 @@
-"""Filesystem-backed memory store with sidecar metadata persistence."""
+"""Filesystem paths and repository operations for Acreta memory."""
 
 from __future__ import annotations
 
 import re
 import secrets
+import shutil
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
 from acreta.memory.meta_store import MetaStore
-from acreta.memory.models import Learning, LearningType, LifecycleState, PrimitiveType
+from acreta.memory.memory_record import Learning, LearningType, LifecycleState, MemoryType, PrimitiveType, memory_folder
 
 
-_MEMORY_GLOB = ("decisions", "learnings", "conventions", "context")
+_MEMORY_GLOB = tuple(memory_folder(item) for item in MemoryType)
 
 
-class FileStore:
+@dataclass(frozen=True)
+class MemoryPaths:
+    """Resolved canonical paths for one Acreta data root."""
+
+    data_dir: Path
+    memory_dir: Path
+    meta_dir: Path
+    workspace_dir: Path
+    index_dir: Path
+    fts_db_path: Path
+    graph_db_path: Path
+    vectors_dir: Path
+
+
+def build_memory_paths(data_dir: Path) -> MemoryPaths:
+    """Build canonical path set rooted at ``data_dir``."""
+    data_dir = data_dir.expanduser()
+    index_dir = data_dir / "index"
+    return MemoryPaths(
+        data_dir=data_dir,
+        memory_dir=data_dir / "memory",
+        meta_dir=data_dir / "meta",
+        workspace_dir=data_dir / "workspace",
+        index_dir=index_dir,
+        fts_db_path=index_dir / "fts.sqlite3",
+        graph_db_path=index_dir / "graph.sqlite3",
+        vectors_dir=index_dir / "vectors.lance",
+    )
+
+
+def ensure_memory_paths(paths: MemoryPaths) -> None:
+    """Create required canonical memory folders when missing."""
+    memory_paths = tuple(paths.memory_dir / memory_folder(item) for item in MemoryType)
+    for path in (
+        *memory_paths,
+        paths.meta_dir / "evidence",
+        paths.meta_dir / "state",
+        paths.meta_dir / "traces" / "sessions",
+        paths.workspace_dir,
+        paths.index_dir,
+    ):
+        path.mkdir(parents=True, exist_ok=True)
+
+
+def reset_memory_root(paths: MemoryPaths) -> dict[str, list[str]]:
+    """Delete memory/meta/index/workspace trees for a root and recreate canonical layout."""
+    removed: list[str] = []
+    for path in (paths.memory_dir, paths.meta_dir, paths.workspace_dir, paths.index_dir):
+        if path.exists():
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                path.unlink(missing_ok=True)
+            removed.append(str(path))
+    ensure_memory_paths(paths)
+    return {"removed": removed}
+
+
+class MemoryRepository:
     """Read/write API for memory markdown files and sidecar metadata."""
 
     def __init__(self, memory_dir: Path, meta_dir: Path | None = None) -> None:
@@ -32,8 +92,7 @@ class FileStore:
         return {
             PrimitiveType.decision: "d",
             PrimitiveType.learning: "l",
-            PrimitiveType.convention: "c",
-            PrimitiveType.context: "x",
+            PrimitiveType.summary: "s",
         }[primitive]
 
     def _ensure_unique_id(self, learning: Learning) -> None:
@@ -191,11 +250,11 @@ if __name__ == "__main__":
 
     with TemporaryDirectory() as tmp_dir:
         root = Path(tmp_dir)
-        store = FileStore(root / "memory", root / "meta")
+        store = MemoryRepository(root / "memory", root / "meta")
         learning = Learning(
             id=store.generate_id(PrimitiveType.learning),
             title="Store smoke test",
-            body="Verify FileStore round-trip behavior.",
+            body="Verify MemoryRepository round-trip behavior.",
             primitive=PrimitiveType.learning,
         )
         created_path = store.write(learning)

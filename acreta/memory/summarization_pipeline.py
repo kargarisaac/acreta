@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -96,80 +97,69 @@ def summarize_trace_from_session_file(
     )
 
 
-def summarize_session_trace(
-    run_id: str,
-) -> dict[str, Any]:
-    """Resolve run id, summarize its trace, and return summary metadata payload."""
-    session = session_db.fetch_session_doc(run_id)
-    if session is None:
-        session_db.index_new_sessions()
-        session = session_db.fetch_session_doc(run_id)
-    if session is None:
-        return {"run_id": run_id, "status": "missing"}
-
-    source_path_raw = str(session.get("session_path") or "").strip()
-    if not source_path_raw:
-        return {"run_id": run_id, "status": "session_path_missing"}
-
-    session_file_path = Path(source_path_raw).expanduser()
-    if not session_file_path.exists() or not session_file_path.is_file():
-        return {"run_id": run_id, "status": "session_path_missing"}
-
-    metadata = {**session, "run_id": run_id, "raw_trace_path": str(session_file_path)}
-    summary_payload = summarize_trace_from_session_file(
-        session_file_path,
-        metadata=metadata,
-        metrics={},
-    )
-
-    return {
-        "run_id": run_id,
-        "status": "completed",
-        "summary": summary_payload,
-        "metadata": metadata,
-        "session_path": str(session_file_path),
-    }
-
-
 if __name__ == "__main__":
-    """Run a real smoke test for trace summarization without model mocking."""
+    """Run CLI summary mode by trace path or run a real-path self-test."""
+    import argparse
     import os
+    import sys
     from tempfile import TemporaryDirectory
 
     from acreta.config.settings import reload_config
 
-    with TemporaryDirectory() as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        os.environ["ACRETA_DATA_DIR"] = str(tmp_path)
-        os.environ["ACRETA_MEMORY_DIR"] = str(tmp_path / "memory")
-        os.environ["ACRETA_INDEX_DIR"] = str(tmp_path / "index")
-        os.environ["ACRETA_SESSIONS_DB"] = str(tmp_path / "index" / "sessions.sqlite3")
-        os.environ["ACRETA_MEMORY_SCOPE"] = "global_only"
-        reload_config()
-        session_db.init_sessions_db()
+    parser = argparse.ArgumentParser(prog="python -m acreta.memory.summarization_pipeline")
+    parser.add_argument("--trace-path")
+    parser.add_argument("--output")
+    parser.add_argument("--metadata-json", default="{}")
+    parser.add_argument("--metrics-json", default="{}")
+    args = parser.parse_args()
 
-        run_id = "summary-self-test-1"
-        session_path = tmp_path / "sessions" / f"{run_id}.jsonl"
-        session_path.parent.mkdir(parents=True, exist_ok=True)
-        session_path.write_text(
-            '{"role":"user","content":"Fix queue heartbeat drift and duplicate claims."}\n'
-            '{"role":"assistant","content":"Implemented heartbeat every 15 seconds and bounded retries."}\n',
-            encoding="utf-8",
+    if args.trace_path:
+        session_file = Path(args.trace_path).expanduser()
+        metadata = json.loads(args.metadata_json)
+        metrics = json.loads(args.metrics_json)
+        payload = summarize_trace_from_session_file(
+            session_file,
+            metadata=metadata if isinstance(metadata, dict) else {},
+            metrics=metrics if isinstance(metrics, dict) else {},
         )
-        session_db.index_session_for_fts(
-            run_id=run_id,
-            agent_type="codex",
-            repo_name="acreta",
-            content="queue heartbeat fix",
-            session_path=str(session_path),
-        )
-        result = summarize_session_trace(run_id)
+        encoded = json.dumps(payload, ensure_ascii=True, indent=2) + "\n"
+        if args.output:
+            output_path = Path(args.output).expanduser()
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(encoded, encoding="utf-8")
+        else:
+            sys.stdout.write(encoded)
+    else:
+        with TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            os.environ["ACRETA_DATA_DIR"] = str(tmp_path)
+            os.environ["ACRETA_MEMORY_DIR"] = str(tmp_path / "memory")
+            os.environ["ACRETA_INDEX_DIR"] = str(tmp_path / "index")
+            os.environ["ACRETA_SESSIONS_DB"] = str(tmp_path / "index" / "sessions.sqlite3")
+            os.environ["ACRETA_MEMORY_SCOPE"] = "global_only"
+            reload_config()
+            session_db.init_sessions_db()
 
-    assert result["status"] == "completed"
-    summary = result["summary"]
-    assert isinstance(summary, dict)
-    assert summary["title"]
-    assert summary["description"]
-    assert summary["coding_agent"] == "codex"
-    assert summary["raw_trace_path"].endswith(f"{run_id}.jsonl")
-    assert len(summary["summary"].split()) <= 300
+            run_id = "summary-self-test-1"
+            session_path = tmp_path / "sessions" / f"{run_id}.jsonl"
+            session_path.parent.mkdir(parents=True, exist_ok=True)
+            session_path.write_text(
+                '{"role":"user","content":"Fix queue heartbeat drift and duplicate claims."}\n'
+                '{"role":"assistant","content":"Implemented heartbeat every 15 seconds and bounded retries."}\n',
+                encoding="utf-8",
+            )
+            session_db.index_session_for_fts(
+                run_id=run_id,
+                agent_type="codex",
+                repo_name="acreta",
+                content="queue heartbeat fix",
+                session_path=str(session_path),
+            )
+            payload = summarize_trace_from_session_file(session_path, metadata={"run_id": run_id}, metrics={})
+
+        assert isinstance(payload, dict)
+        assert payload["title"]
+        assert payload["description"]
+        assert payload["coding_agent"] == "codex"
+        assert payload["raw_trace_path"].endswith(f"{run_id}.jsonl")
+        assert len(payload["summary"].split()) <= 300
