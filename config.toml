@@ -1,0 +1,54 @@
+# Acreta Memory V2 configuration
+# Precedence: defaults < this file < ~/.acreta/config.toml < <repo>/.acreta/config.toml < env vars
+
+[data]
+# Global fallback root
+dir = "~/.acreta"
+
+[memory]
+scope = "project_fallback_global"   # project_fallback_global | project_only | global_only
+project_dir_name = ".acreta"
+hard_reset_legacy = true
+
+[index]
+# Keep session catalog global by default.
+sessions_db = "~/.acreta/index/sessions.sqlite3"
+
+[paths]
+claude_dir = "~/.claude/projects"
+codex_dir = "~/.codex/sessions"
+opencode_dir = "~/.local/share/opencode"
+platforms = "~/.acreta/platforms.json"
+
+[server]
+host = "127.0.0.1"
+port = 8765
+poll_interval_minutes = 5
+
+[agent]
+provider = "anthropic"
+model = "claude-haiku-4-5-20251001"
+timeout = 120
+
+[embeddings]
+provider = "local"
+model = "Alibaba-NLP/gte-modernbert-base"
+chunk_tokens = 800
+chunk_overlap_tokens = 200
+max_input_tokens = 8192
+# base_url = "https://api.openai.com/v1/embeddings"
+
+[search]
+mode = "files"      # files | fts | hybrid
+enable_fts = false
+enable_vectors = false
+enable_graph = true
+graph_depth = 1
+graph_export = false
+
+[api_keys]
+# Keep empty here. Prefer .env or exported env vars.
+# anthropic = ""
+# zai = ""
+# openai = ""
+# openrouter = ""

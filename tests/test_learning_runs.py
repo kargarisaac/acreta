@@ -1,0 +1,76 @@
+"""test learning runs."""
+
+from __future__ import annotations
+
+from acreta.config.settings import reload_config
+from acreta.sessions import catalog
+
+
+def _setup(tmp_path):
+    import os
+
+    os.environ["ACRETA_DATA_DIR"] = str(tmp_path)
+    os.environ["ACRETA_SESSIONS_DB"] = str(tmp_path / "index" / "sessions.sqlite3")
+    reload_config()
+    catalog.init_sessions_db()
+
+
+def test_queue_lifecycle_complete(tmp_path):
+    _setup(tmp_path)
+    enq = catalog.enqueue_session_job("run-1", agent_type="codex", session_path="/tmp/run-1.jsonl")
+    assert enq is True
+
+    claimed = catalog.claim_session_jobs(limit=1)
+    assert len(claimed) == 1
+    assert claimed[0]["run_id"] == "run-1"
+    assert claimed[0]["status"] == "running"
+
+    done = catalog.complete_session_job("run-1")
+    assert done is True
+
+    counts = catalog.count_session_jobs_by_status()
+    assert counts["done"] == 1
+
+
+def test_queue_fail_to_dead_letter(tmp_path):
+    _setup(tmp_path)
+    catalog.enqueue_session_job("run-2", max_attempts=1)
+    claimed = catalog.claim_session_jobs(limit=1)
+    assert claimed[0]["run_id"] == "run-2"
+
+    failed = catalog.fail_session_job("run-2", error="boom", retry_backoff_seconds=1)
+    assert failed is True
+
+    rows = catalog.list_session_jobs(limit=5)
+    row = next(item for item in rows if item["run_id"] == "run-2")
+    assert row["status"] == "dead_letter"
+
+
+def test_queue_heartbeat_updates_running_job(tmp_path):
+    _setup(tmp_path)
+    catalog.enqueue_session_job("run-3", agent_type="claude", session_path="/tmp/run-3.jsonl")
+    claimed = catalog.claim_session_jobs(limit=1)
+    assert claimed and claimed[0]["run_id"] == "run-3"
+    first_heartbeat = str(claimed[0].get("heartbeat_at") or "")
+    assert first_heartbeat
+
+    touched = catalog.heartbeat_session_job("run-3")
+    assert touched is True
+
+    row = next(item for item in catalog.list_session_jobs(limit=10) if item["run_id"] == "run-3")
+    second_heartbeat = str(row.get("heartbeat_at") or "")
+    assert second_heartbeat
+    assert second_heartbeat >= first_heartbeat
+
+
+def test_queue_fail_marks_failed_before_dead_letter(tmp_path):
+    _setup(tmp_path)
+    catalog.enqueue_session_job("run-4", max_attempts=3)
+    claimed = catalog.claim_session_jobs(limit=1)
+    assert claimed and claimed[0]["run_id"] == "run-4"
+
+    failed = catalog.fail_session_job("run-4", error="temporary", retry_backoff_seconds=30)
+    assert failed is True
+
+    row = next(item for item in catalog.list_session_jobs(limit=10) if item["run_id"] == "run-4")
+    assert row["status"] == "failed"

@@ -1,0 +1,199 @@
+{
+    "version": "0.2.0",
+    "inputs": [
+        {
+            "id": "runId",
+            "type": "promptString",
+            "description": "Session run_id (for acreta sync --run-id)",
+            "default": ""
+        },
+        {
+            "id": "projectPath",
+            "type": "promptString",
+            "description": "Project path (for acreta readiness run --project)",
+            "default": "${workspaceFolder}"
+        }
+    ],
+    "configurations": [
+        {
+            "name": "Acreta: Extract Pipeline Demo (__main__)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/acreta/extract/pipeline.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Connect Claude",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": ["connect", "claude"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Daemon scheduler (sync + maintain)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": [
+                "daemon",
+                "--sync-every", "2m",
+                "--maintain-window", "1d"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Sessions search (FTS)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": ["sessions", "search", "error", "--limit", "5"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Sync one session",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": ["sync", "--run-id", "${input:runId}"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Memory search (memory-only)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": ["memory", "search", "read before edit"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Chat + context",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": ["chat", "What did we learn about file edits?", "--show-context"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Chat project briefing",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": ["chat", "Create a concise project briefing for this repository."],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Export CLAUDE.md",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": ["memory", "export", "--format", "claude-md", "--project", "."],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Maintain window",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": ["maintain", "--window", "7d"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Sync dry-run",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": ["sync", "--dry-run"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Maintain dry-run",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": ["maintain", "--dry-run"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Status JSON",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": ["status", "--json"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Readiness run (Codex)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": [
+                "readiness",
+                "run",
+                "--project",
+                "${input:projectPath}",
+                "--agent",
+                "codex"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Eval retrieval",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": ["admin", "eval", "run", "--mode", "retrieval", "--limit", "5"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Dashboard (web)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": ["dashboard"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Acreta: Dashboard (web, UI backend debug)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "acreta.cli.main",
+            "args": ["dashboard", "--host", "127.0.0.1", "--port", "8877", "--worker", "off"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
+        }
+    ]
+}
