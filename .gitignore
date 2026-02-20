@@ -29,6 +29,7 @@ site/
 .acreta/
 .vscode/
 .cursor/
+.tmp/
 
 dev-docs/
 
