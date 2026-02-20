@@ -5,7 +5,7 @@ from __future__ import annotations
 from acreta.app import daemon
 from acreta.app.arg_utils import parse_agent_filter, parse_csv, parse_duration_to_seconds
 from acreta.config.settings import reload_config
-from acreta.extract import pipeline
+from acreta.memory import extract_pipeline as pipeline
 from acreta.sessions import catalog
 
 

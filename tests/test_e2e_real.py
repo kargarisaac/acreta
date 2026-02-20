@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from acreta.config.settings import reload_config
-from acreta.extract import pipeline
+from acreta.memory import extract_pipeline as pipeline
 from acreta.sessions import catalog
 from tests.helpers import run_cli
 

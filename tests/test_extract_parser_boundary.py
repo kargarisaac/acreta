@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from acreta.extract import pipeline
+from acreta.memory import extract_pipeline as pipeline
 
 
 def test_pipeline_module_is_extract_boundary() -> None:

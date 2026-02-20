@@ -7,20 +7,18 @@ session file (.jsonl/.json) -> read text -> dspy.RLM -> memory candidates.
 from __future__ import annotations
 
 import json
-import os
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-
 import dspy
 from pydantic import BaseModel, Field
-from dotenv import load_dotenv
 
 from acreta.memory.models import LearningType, PrimitiveType
+from acreta.memory.utils import configure_dspy_lm, env_positive_int
 from acreta.sessions import catalog as session_db
-from acreta.config.logging import logger
+
 
 class MemoryCandidate(BaseModel):
     """One extracted memory candidate from a transcript."""
@@ -54,65 +52,6 @@ class MemoryExtractSignature(dspy.Signature):
     primitives: list[MemoryCandidate] = dspy.OutputField(desc="Extracted memory candidate list")
 
 
-def _configure_dspy_lm() -> dspy.LM:
-    """Configure DSPy LM from env for either ollama or openrouter."""
-    load_dotenv()
-    provider = str(os.environ.get("ACRETA_DSPY_PROVIDER", "ollama") or "ollama").strip().lower()
-    logger.info(f"Configuring DSPy LM for provider: {provider}")
-
-    if provider == "ollama":
-        ollama_api_base = os.environ.get("ACRETA_DSPY_OLLAMA_API_BASE", "http://127.0.0.1:11434")
-        ollama_model = os.environ.get("ACRETA_DSPY_OLLAMA_MODEL", "qwen3:8b")
-        logger.info(f"Configuring DSPy LM for ollama: {ollama_model}")
-
-        lm = dspy.LM(
-            f"ollama_chat/{ollama_model}",
-            api_base=ollama_api_base,
-            api_key="ollama",
-            cache=False,
-        )
-        dspy.configure(lm=lm)
-        return lm
-
-    if provider == "openrouter":
-        api_key = str(os.environ.get("OPENROUTER_API_KEY") or "").strip()
-        if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY is required when ACRETA_DSPY_PROVIDER=openrouter")
-
-        try:
-            from openrouter import OpenRouter
-        except ImportError as exc:
-            raise RuntimeError("openrouter package is required when ACRETA_DSPY_PROVIDER=openrouter") from exc
-
-        http_referer = str(os.environ.get("OPENROUTER_HTTP_REFERER") or "").strip() or None
-        x_title = str(os.environ.get("OPENROUTER_X_TITLE") or "").strip() or None
-        OpenRouter(api_key=api_key, http_referer=http_referer, x_title=x_title)
-
-        model = str(os.environ.get("ACRETA_DSPY_OPENROUTER_MODEL") or "openai/gpt-4o-mini").strip()
-        api_base = str(os.environ.get("ACRETA_DSPY_OPENROUTER_API_BASE") or "https://openrouter.ai/api/v1").strip()
-        logger.info(f"Configuring Model for openrouter: {model}")
-
-        headers: dict[str, str] = {}
-        if http_referer:
-            headers["HTTP-Referer"] = http_referer
-        if x_title:
-            headers["X-Title"] = x_title
-
-        lm_kwargs: dict[str, Any] = {
-            "api_key": api_key,
-            "api_base": api_base,
-            "cache": False,
-        }
-        if headers:
-            lm_kwargs["extra_headers"] = headers
-
-        lm = dspy.LM(f"openrouter/{model}", **lm_kwargs)
-        dspy.configure(lm=lm)
-        return lm
-
-    raise RuntimeError(f"Unsupported ACRETA_DSPY_PROVIDER={provider!r}; use 'ollama' or 'openrouter'")
-
-
 def _extract_candidates_with_rlm(
     transcript: str,
     *,
@@ -122,13 +61,13 @@ def _extract_candidates_with_rlm(
     """Run DSPy RLM on transcript text and return normalized candidates."""
     if not transcript.strip():
         return []
-    max_iterations = int(os.environ.get("ACRETA_DSPY_RLM_MAX_ITERATIONS", "24"))
-    max_llm_calls = int(os.environ.get("ACRETA_DSPY_RLM_MAX_LLM_CALLS", "24"))
-    _configure_dspy_lm()
+    max_iterations = env_positive_int("ACRETA_DSPY_RLM_MAX_ITERATIONS", 24)
+    max_llm_calls = env_positive_int("ACRETA_DSPY_RLM_MAX_LLM_CALLS", 24)
+    configure_dspy_lm()
     rlm = dspy.RLM(
         MemoryExtractSignature,
-        max_iterations=max(1, max_iterations),
-        max_llm_calls=max(1, max_llm_calls),
+        max_iterations=max_iterations,
+        max_llm_calls=max_llm_calls,
         verbose=True,
     )
     result = rlm(
@@ -296,4 +235,3 @@ if __name__ == "__main__":
             quality_hits += 1
 
     assert quality_hits >= 1, "self-test failed: extracted memories miss expected session signals"
-

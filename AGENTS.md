@@ -13,6 +13,7 @@ General coding simplification source of truth is [docs/simple-coding-rules.md](d
 
 ## Rules
 
+- Never Never make silent decisions. Always ask Isaac.
 - Never commit unless user asked clearly.
 - Do not revert unrelated user changes.
 - Keep folder docs updated when boundaries change.
@@ -27,6 +28,8 @@ General coding simplification source of truth is [docs/simple-coding-rules.md](d
 - Never keep old codes
 - Always prefer implementing every feature with minimum number of functions and minimal number of lines and the most simple solution. Do not overengineer.
 - Follow [docs/simple-coding-rules.md](docs/simple-coding-rules.md) for general coding style, simplification, strict schemas, and testing expectations.
+- Never do normalization for chat traces. feed the raw traces to llm.
+- DSPY uses pydantic. no need for separate normalization or check.
 
 ## Run locally
 

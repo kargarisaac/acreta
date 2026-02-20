@@ -30,7 +30,7 @@ from acreta.app.daemon import run_daemon_forever, run_daemon_once
 from acreta.config.project_scope import resolve_data_dirs
 from acreta.config.logging import configure_logging
 from acreta.config.settings import get_config
-from acreta.memory.layout import build_layout, ensure_schema, reset_legacy_artifacts
+from acreta.memory.layout import build_layout, reset_data_root
 from acreta.memory.models import Learning, LearningType, PrimitiveType
 from acreta.memory.store import FileStore
 from acreta.runtime.agent import AcretaAgent
@@ -424,7 +424,7 @@ def _looks_like_auth_error(response: str) -> bool:
 
 
 def _cmd_memory_reset(args: argparse.Namespace) -> int:
-    """Reset memory/layout artifacts for project/global roots."""
+    """Reset memory/meta/index trees for project/global roots."""
     if not args.yes:
         _emit("Refusing to reset without --yes", file=sys.stderr)
         return 2
@@ -450,9 +450,8 @@ def _cmd_memory_reset(args: argparse.Namespace) -> int:
             continue
         seen.add(root)
         layout = build_layout(root)
-        result = reset_legacy_artifacts(layout)
-        marker = ensure_schema(layout, hard_reset_legacy=False)
-        summaries.append({"data_dir": str(root), "removed": result.get("removed") or [], "schema": marker})
+        result = reset_data_root(layout)
+        summaries.append({"data_dir": str(root), "removed": result.get("removed") or []})
 
     if args.json:
         _emit(json.dumps({"reset": summaries}, indent=2, ensure_ascii=True))
@@ -590,7 +589,7 @@ def build_parser() -> argparse.ArgumentParser:
     memory_export.add_argument("--output")
     memory_export.set_defaults(func=_cmd_memory_export)
 
-    memory_reset = memory_sub.add_parser("reset", help="Destructive reset of legacy memory artifacts")
+    memory_reset = memory_sub.add_parser("reset", help="Destructive reset of memory data for selected scope")
     memory_reset.add_argument("--scope", choices=["project", "global", "both"], default="both")
     memory_reset.add_argument("--yes", action="store_true", help="Confirm destructive reset")
     memory_reset.set_defaults(func=_cmd_memory_reset)

@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from acreta.adapters.common import load_jsonl_dict_lines
 from acreta.config.logging import logger
 from acreta.config.settings import get_config, get_config_sources, get_user_config_path
-from acreta.extract.pipeline import build_extract_report
+from acreta.memory.extract_pipeline import build_extract_report
 from acreta.memory.models import Learning
 from acreta.memory.store import FileStore
 from acreta.runtime.providers import get_provider_config

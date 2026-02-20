@@ -271,7 +271,7 @@ def _run_maintain_step(
     dry_run: bool,
 ) -> dict | None:
     """Execute one maintain step and return optional structured output."""
-    from acreta.extract.pipeline import build_extract_report
+    from acreta.memory.extract_pipeline import build_extract_report
     from acreta.memory.maintenance import apply_decay, consolidate_learnings
 
     if step == "consolidate":
@@ -306,7 +306,7 @@ def run_sync_once(
     window_end: datetime | None = None,
 ) -> tuple[int, SyncSummary]:
     """Run one sync cycle: index sessions, enqueue jobs, process extraction."""
-    from acreta.extract.pipeline import extract_session_memories
+    from acreta.memory.extract_pipeline import extract_session_memories
     from acreta.sessions.catalog import (
         IndexedSession,
         claim_session_jobs,

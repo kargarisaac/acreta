@@ -56,7 +56,7 @@ Canonical sidecars:
 - `.acreta/meta/evidence/<id>.json`
 - `.acreta/meta/traces/sessions/<agent>/<run_id>.jsonl`
 
-Reserved index folder (compatibility):
+Index folder:
 
 - `.acreta/index/fts.sqlite3`
 - `.acreta/index/graph.sqlite3`

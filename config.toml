@@ -8,7 +8,6 @@ dir = "~/.acreta"
 [memory]
 scope = "project_fallback_global"   # project_fallback_global | project_only | global_only
 project_dir_name = ".acreta"
-hard_reset_legacy = true
 
 [index]
 # Keep session catalog global by default.

@@ -1,44 +1,42 @@
-"""test memory layout."""
+"""Tests for canonical memory layout creation and root reset behavior."""
 
 from __future__ import annotations
 
-import json
-
-from acreta.memory.layout import build_layout, ensure_layout, ensure_schema, reset_legacy_artifacts
+from acreta.memory.layout import build_layout, ensure_layout, reset_data_root
 
 
-def test_reset_legacy_artifacts_keeps_canonical_learning_folder(tmp_path) -> None:
+def test_ensure_layout_creates_canonical_folders(tmp_path) -> None:
     layout = build_layout(tmp_path)
     ensure_layout(layout)
 
-    legacy_month = layout.memory_dir / "learnings" / "2026-01"
-    legacy_month.mkdir(parents=True)
-    (legacy_month / "lrn-20260101-abcd.md").write_text("legacy", encoding="utf-8")
+    assert (layout.memory_dir / "decisions").exists()
+    assert (layout.memory_dir / "learnings").exists()
+    assert (layout.memory_dir / "conventions").exists()
+    assert (layout.memory_dir / "context").exists()
+    assert (layout.meta_dir / "state").exists()
+    assert (layout.meta_dir / "evidence").exists()
+    assert (layout.meta_dir / "traces" / "sessions").exists()
+    assert layout.index_dir.exists()
 
-    legacy_root_file = layout.memory_dir / "learnings" / "lrn-20260217-abcd.md"
-    legacy_root_file.write_text("legacy-root", encoding="utf-8")
 
-    canonical_learning = layout.memory_dir / "learnings" / "modern-learning--l20260217abcd.md"
-    canonical_learning.write_text("modern", encoding="utf-8")
+def test_reset_data_root_recreates_clean_layout(tmp_path) -> None:
+    layout = build_layout(tmp_path)
+    ensure_layout(layout)
 
-    result = reset_legacy_artifacts(layout)
+    learning_path = layout.memory_dir / "learnings" / "example--l20260220abcd.md"
+    learning_path.write_text("seed", encoding="utf-8")
+    stale_sidecar = layout.meta_dir / "state" / "old.json"
+    stale_sidecar.write_text("{}", encoding="utf-8")
+    stale_index = layout.index_dir / "fts.sqlite3"
+    stale_index.write_text("", encoding="utf-8")
+
+    result = reset_data_root(layout)
 
     removed = set(result["removed"])
-    assert str(legacy_month) in removed
-    assert str(legacy_root_file) in removed
+    assert str(layout.memory_dir) in removed
+    assert str(layout.meta_dir) in removed
+    assert str(layout.index_dir) in removed
     assert (layout.memory_dir / "learnings").exists()
-    assert canonical_learning.exists()
-
-
-def test_ensure_schema_writes_marker_and_preserves_layout(tmp_path) -> None:
-    layout = build_layout(tmp_path)
-    ensure_layout(layout)
-    marker = ensure_schema(layout, hard_reset_legacy=True)
-
-    assert marker["schema_version"] == 2
-    assert marker["reset_applied"] is True
-    assert (layout.memory_dir / "learnings").exists()
-    assert layout.schema_marker_path.exists()
-
-    payload = json.loads(layout.schema_marker_path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 2
+    assert not learning_path.exists()
+    assert not stale_sidecar.exists()
+    assert not stale_index.exists()

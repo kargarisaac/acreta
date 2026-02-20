@@ -16,7 +16,7 @@ def make_config(base: Path) -> Config:
         data_dir=base,
         memory_dir=base / "memory",
         index_dir=base / "index",
-        memory_db_path=base / "index" / "memory.sqlite3",
+        memory_db_path=base / "index" / "fts.sqlite3",
         sessions_db_path=base / "index" / "sessions.sqlite3",
         vectors_dir=base / "index" / "vectors.lance",
         platforms_path=base / "platforms.json",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from acreta.config.settings import reload_config
-from acreta.extract import pipeline
+from acreta.memory import extract_pipeline as pipeline
 from acreta.sessions import catalog
 
 

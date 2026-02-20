@@ -103,11 +103,15 @@ acreta dashboard --host 127.0.0.1 --port 8765
 acreta memory search "<query>" [--project <project>] [--limit 20]
 acreta memory list [--project <project>] [--limit 50]
 acreta memory add --primitive decision|learning|convention|context --title "<title>" --body "<body>"
-acreta memory add --learning-type <alias> ...        # compatibility alias to learning kind
+acreta memory add --learning-type insight|procedure|friction|pitfall|preference ...
 acreta memory feedback <memory_id> --useful|--not-useful
 acreta memory export [--project <project>] [--format json|markdown] [--output <path>]
 acreta memory reset --scope project|global|both --yes
 ```
+
+Notes:
+- `memory reset` is destructive.
+- It deletes `memory/`, `meta/`, and `index/` under selected roots, then recreates canonical folders.
 
 ### `acreta chat`
 

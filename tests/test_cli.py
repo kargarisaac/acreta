@@ -5,10 +5,13 @@ from __future__ import annotations
 import argparse
 import io
 from contextlib import redirect_stdout
+from dataclasses import replace
 
 import pytest
 
 from acreta.app import cli
+from acreta.config.project_scope import ScopeResolution
+from tests.helpers import make_config
 from tests.helpers import run_cli_json
 
 
@@ -79,3 +82,38 @@ def test_chat_uses_context_docs_when_memory_signal_is_thin(monkeypatch: pytest.M
     assert payload["context_doc_ids"] == []
     assert "Context docs (loaded only if needed)" in captured["prompt"]
     assert "dynamic fan-out" in captured["prompt"]
+
+
+def test_memory_reset_recreates_project_and_global_roots(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project_root = tmp_path / "project-data"
+    global_root = tmp_path / "global-data"
+    for root in (project_root, global_root):
+        (root / "memory" / "learnings").mkdir(parents=True, exist_ok=True)
+        (root / "memory" / "learnings" / "seed.md").write_text("seed", encoding="utf-8")
+        (root / "meta" / "state").mkdir(parents=True, exist_ok=True)
+        (root / "meta" / "state" / "old.json").write_text("{}", encoding="utf-8")
+        (root / "index").mkdir(parents=True, exist_ok=True)
+        (root / "index" / "fts.sqlite3").write_text("", encoding="utf-8")
+
+    base_cfg = make_config(global_root)
+    cfg = replace(base_cfg, data_dir=global_root, global_data_dir=global_root)
+
+    monkeypatch.setattr(cli, "get_config", lambda: cfg)
+    monkeypatch.setattr(
+        cli,
+        "resolve_data_dirs",
+        lambda **_kwargs: ScopeResolution(
+            project_root=tmp_path,
+            project_data_dir=project_root,
+            global_data_dir=global_root,
+            ordered_data_dirs=[project_root, global_root],
+        ),
+    )
+
+    code, payload = run_cli_json(["memory", "reset", "--scope", "both", "--yes", "--json"])
+    assert code == 0
+    assert len(payload["reset"]) == 2
+    assert (project_root / "memory" / "learnings").exists()
+    assert (global_root / "memory" / "learnings").exists()
+    assert not (project_root / "memory" / "learnings" / "seed.md").exists()
+    assert not (global_root / "memory" / "learnings" / "seed.md").exists()

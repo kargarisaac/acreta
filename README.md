@@ -80,7 +80,6 @@ Toggles:
 - `search.enable_graph`
 
 In the simplified runtime, retrieval stays file-first.
-Toggles are preserved as compatibility flags.
 
 ## Memory layout
 
@@ -132,12 +131,11 @@ It is stored in sidecars under `meta/state` and `meta/evidence`.
 
 ## Reset policy
 
-Memory V2 supports hard reset of legacy artifacts.
+Memory reset is explicit and destructive.
 
-- automatic once when schema marker is missing and `memory.hard_reset_legacy = true`
 - manual reset: `acreta memory reset --scope project|global|both --yes`
-
-Legacy folders removed by reset include old `memory/learnings/YYYY-MM`, `memory/graph`, and `memory/traces` layout artifacts.
+- reset deletes `memory/`, `meta/`, and `index/` under selected root(s)
+- reset recreates canonical empty V2 folders immediately
 
 ## Docs map
 

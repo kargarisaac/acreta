@@ -100,16 +100,6 @@ class Learning(BaseModel):
         cleaned = [str(item).strip().lower() for item in values if str(item).strip()]
         return sorted(set(cleaned))
 
-    @property
-    def primitive_type(self) -> PrimitiveType:
-        """Backward-compatible alias for ``primitive``."""
-        return self.primitive
-
-    @property
-    def state(self) -> str:
-        """Backward-compatible alias for ``lifecycle_state.value``."""
-        return self.lifecycle_state.value
-
     @staticmethod
     def slugify(value: str) -> str:
         """Generate a filesystem-safe ASCII slug from text."""

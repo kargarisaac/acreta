@@ -6,7 +6,7 @@ import json
 import os
 
 from acreta.config.settings import reload_config
-from acreta.extract.pipeline import extract_session_memories
+from acreta.memory.extract_pipeline import extract_session_memories
 from acreta.sessions import catalog
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import tomllib
-import warnings
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -31,11 +30,8 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 DEFAULT_REPO_CONFIG_PATH = REPO_ROOT / "config.toml"
 DEFAULT_XDG_CONFIG_PATH = Path.home() / ".config" / "acreta" / "config.toml"
 DEFAULT_USER_CONFIG_PATH = Path.home() / ".acreta" / "config.toml"
-LEGACY_REPO_CONFIG_PATH = REPO_ROOT / "config" / "acreta.toml"
-LEGACY_USER_CONFIG_PATH = Path.home() / ".acreta" / "acreta.toml"
 
 _LAST_CONFIG_SOURCES: list[dict[str, str]] = []
-_WARNED_DEPRECATED_PATHS: set[str] = set()
 
 
 def load_toml_file(path: Path | None) -> dict:
@@ -105,7 +101,7 @@ def _ensure_project_config_exists(data_root: Path) -> Path:
         "[memory]\n"
         "# scope = \"project_fallback_global\"\n"
         "# project_dir_name = \".acreta\"\n"
-        "# hard_reset_legacy = true\n\n"
+        "\n"
         "[search]\n"
         "# mode = \"files\"    # files | fts | hybrid\n"
         "# enable_fts = false\n"
@@ -117,28 +113,13 @@ def _ensure_project_config_exists(data_root: Path) -> Path:
     return path
 
 
-def _config_layer_specs() -> list[tuple[str, Path, bool]]:
-    """Return config layers in load order with deprecation metadata."""
+def _config_layer_specs() -> list[tuple[str, Path]]:
+    """Return config layers in load order."""
     return [
-        ("repo_default", DEFAULT_REPO_CONFIG_PATH, False),
-        ("repo_legacy", LEGACY_REPO_CONFIG_PATH, True),
-        ("xdg_user", DEFAULT_XDG_CONFIG_PATH, False),
-        ("user_legacy", LEGACY_USER_CONFIG_PATH, True),
-        ("user_override", DEFAULT_USER_CONFIG_PATH, False),
+        ("repo_default", DEFAULT_REPO_CONFIG_PATH),
+        ("xdg_user", DEFAULT_XDG_CONFIG_PATH),
+        ("user_override", DEFAULT_USER_CONFIG_PATH),
     ]
-
-
-def _warn_deprecated_path(path: Path) -> None:
-    """Emit one-time deprecation warning for legacy config paths."""
-    key = str(path)
-    if key in _WARNED_DEPRECATED_PATHS:
-        return
-    _WARNED_DEPRECATED_PATHS.add(key)
-    warnings.warn(
-        f"Deprecated config path in use: {path}. Migrate to ~/.acreta/config.toml.",
-        DeprecationWarning,
-        stacklevel=3,
-    )
 
 
 def _load_toml_layers() -> tuple[dict[str, Any], list[dict[str, str]]]:
@@ -146,7 +127,7 @@ def _load_toml_layers() -> tuple[dict[str, Any], list[dict[str, str]]]:
     merged: dict[str, Any] = {}
     sources: list[dict[str, str]] = []
 
-    for source, path, deprecated in _config_layer_specs():
+    for source, path in _config_layer_specs():
         if not path.exists():
             continue
         payload = load_toml_file(path)
@@ -154,8 +135,6 @@ def _load_toml_layers() -> tuple[dict[str, Any], list[dict[str, str]]]:
             continue
         merged = _deep_merge(merged, payload)
         sources.append({"source": source, "path": str(path)})
-        if deprecated:
-            _warn_deprecated_path(path)
 
     project_root = git_root_for(Path.cwd())
     if project_root:
@@ -281,7 +260,6 @@ class Config:
     graph_db_path: Path | None = None
     memory_scope: str = "project_fallback_global"
     memory_project_dir_name: str = DEFAULT_PROJECT_DIR_NAME
-    memory_hard_reset_legacy: bool = True
     search_mode: str = "files"
     search_enable_fts: bool = False
     search_enable_vectors: bool = False
@@ -317,7 +295,6 @@ class Config:
             "embedding_max_input_tokens": self.embedding_max_input_tokens,
             "memory_scope": self.memory_scope,
             "memory_project_dir_name": self.memory_project_dir_name,
-            "memory_hard_reset_legacy": self.memory_hard_reset_legacy,
             "search_mode": self.search_mode,
             "search_enable_fts": self.search_enable_fts,
             "search_enable_vectors": self.search_enable_vectors,
@@ -329,7 +306,7 @@ class Config:
 
 @lru_cache(maxsize=1)
 def load_config() -> Config:
-    """Load effective config, ensure schema/layout, and cache the result."""
+    """Load effective config, ensure layout, and cache the result."""
     load_dotenv()
     ensure_user_config_exists()
     toml_data, sources = _load_toml_layers()
@@ -359,17 +336,6 @@ def load_config() -> Config:
             default=DEFAULT_PROJECT_DIR_NAME,
         )
     ).strip() or DEFAULT_PROJECT_DIR_NAME
-    memory_hard_reset_legacy = _parse_bool(
-        _env_or_toml(
-            "ACRETA_MEMORY_HARD_RESET_LEGACY",
-            toml_data,
-            "memory",
-            "hard_reset_legacy",
-            default=True,
-        ),
-        True,
-    )
-
     env_memory_dir_set = os.getenv("ACRETA_MEMORY_DIR") not in (None, "")
     env_index_dir_set = os.getenv("ACRETA_INDEX_DIR") not in (None, "")
     env_data_dir_set = os.getenv("ACRETA_DATA_DIR") not in (None, "")
@@ -514,10 +480,10 @@ def load_config() -> Config:
 
     graph_export = _parse_bool(_env_or_toml("ACRETA_GRAPH_EXPORT", toml_data, "search", "graph_export", default=False))
 
-    from acreta.memory.layout import build_layout, ensure_schema
+    from acreta.memory.layout import build_layout, ensure_layout
 
     for data_root in scope.ordered_data_dirs:
-        ensure_schema(build_layout(data_root), hard_reset_legacy=memory_hard_reset_legacy)
+        ensure_layout(build_layout(data_root))
         _ensure_project_config_exists(data_root)
 
     return Config(
@@ -551,7 +517,6 @@ def load_config() -> Config:
         embedding_max_input_tokens=embedding_max_input_tokens,
         memory_scope=memory_scope,
         memory_project_dir_name=memory_project_dir_name,
-        memory_hard_reset_legacy=memory_hard_reset_legacy,
         search_mode=search_mode,
         search_enable_fts=search_enable_fts,
         search_enable_vectors=search_enable_vectors,
