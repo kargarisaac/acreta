@@ -16,8 +16,8 @@ from acreta.adapters.common import load_jsonl_dict_lines
 from acreta.config.logging import logger
 from acreta.config.settings import get_config, get_config_sources, get_user_config_path
 from acreta.memory.extract_pipeline import build_extract_report
-from acreta.memory.models import Learning
-from acreta.memory.store import FileStore
+from acreta.memory.memory_record import Learning
+from acreta.memory.memory_repo import MemoryRepository
 from acreta.runtime.providers import get_provider_config
 from acreta.sessions.catalog import (
     count_session_jobs_by_status,
@@ -475,7 +475,7 @@ def _memory_graph_query(payload: dict[str, Any]) -> dict[str, Any]:
     project_values = _graph_filter_values(filters, "projects")
     tag_values = _graph_filter_values(filters, "tags")
 
-    store = FileStore(get_config().memory_dir)
+    store = MemoryRepository(get_config().memory_dir)
     all_learnings = sorted(store.list_all(), key=lambda item: item.updated, reverse=True)
     selected = _filter_learnings(
         all_learnings,
@@ -519,7 +519,7 @@ def _memory_graph_expand(payload: dict[str, Any]) -> dict[str, Any]:
             "warnings": ["Only memory node expansion is supported in this build."],
         }
     memory_id = node_id.split("mem:", 1)[1]
-    store = FileStore(get_config().memory_dir)
+    store = MemoryRepository(get_config().memory_dir)
     seed = store.read(memory_id)
     if seed is None:
         return {
@@ -732,7 +732,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _api_memories(self, query: dict[str, list[str]]) -> None:
         """Return filtered memory list for dashboard memory explorer."""
         config = get_config()
-        store = FileStore(config.memory_dir)
+        store = MemoryRepository(config.memory_dir)
         all_items = sorted(store.list_all(), key=lambda item: item.updated, reverse=True)
         query_text = (query.get("query") or [""])[0].strip()
         type_filter = (query.get("type") or [""])[0].strip()
@@ -757,7 +757,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         """Return full memory details for one memory id."""
         config = get_config()
         memory_id = unquote(path.split("/api/memories/", 1)[1])
-        store = FileStore(config.memory_dir)
+        store = MemoryRepository(config.memory_dir)
         learning = store.read(memory_id)
         if learning is None:
             self._error(HTTPStatus.NOT_FOUND, "Memory not found")
@@ -767,7 +767,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _api_memory_graph_options(self) -> None:
         """Return memory-graph filter option lists."""
         config = get_config()
-        store = FileStore(config.memory_dir)
+        store = MemoryRepository(config.memory_dir)
         self._json(_memory_graph_options(store.list_all()))
 
     def _api_refine_status(self) -> None:
@@ -787,7 +787,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json(_REPORT_CACHE["value"])
             return
         try:
-            report = build_extract_report(no_llm=True)
+            report = build_extract_report()
         except Exception as exc:
             self._error(HTTPStatus.INTERNAL_SERVER_ERROR, f"Report unavailable: {exc}")
             return

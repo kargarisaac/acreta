@@ -30,9 +30,9 @@ from acreta.app.daemon import run_daemon_forever, run_daemon_once
 from acreta.config.project_scope import resolve_data_dirs
 from acreta.config.logging import configure_logging
 from acreta.config.settings import get_config
-from acreta.memory.layout import build_layout, reset_data_root
-from acreta.memory.models import Learning, LearningType, PrimitiveType
-from acreta.memory.store import FileStore
+from acreta.memory.memory_repo import build_memory_paths, reset_memory_root
+from acreta.memory.memory_record import Learning, LearningType, PrimitiveType
+from acreta.memory.memory_repo import MemoryRepository
 from acreta.runtime.agent import AcretaAgent
 from acreta.sessions.catalog import count_fts_indexed, count_session_jobs_by_status, latest_service_run
 
@@ -59,10 +59,10 @@ def _format_learning(learning: Learning) -> str:
     )
 
 
-def _memory_store() -> FileStore:
+def _memory_store() -> MemoryRepository:
     """Create the canonical file-backed memory store instance."""
     config = get_config()
-    return FileStore(config.memory_dir, config.memory_dir.parent / "meta")
+    return MemoryRepository(config.memory_dir, config.memory_dir.parent / "meta")
 
 
 def _load_context_docs_for_chat(
@@ -209,7 +209,6 @@ def _cmd_sync(args: argparse.Namespace) -> int:
         run_id=args.run_id,
         agent_filter=parse_agent_filter(args.agent),
         no_extract=args.no_extract,
-        no_llm=args.no_llm,
         force=args.force,
         max_sessions=args.max_sessions,
         dry_run=args.dry_run,
@@ -236,7 +235,6 @@ def _cmd_maintain(args: argparse.Namespace) -> int:
         until_raw=args.until,
         steps_raw=args.steps,
         agent_raw=args.agent,
-        no_llm=args.no_llm,
         force=args.force,
         dry_run=args.dry_run,
         parse_duration_to_seconds=parse_duration_to_seconds,
@@ -314,8 +312,6 @@ def _cmd_memory_add(args: argparse.Namespace) -> int:
         kind=kind,
         status=str(args.status or "active"),
         decided_by=str(args.decided_by or "agent"),
-        scope=str(args.convention_scope or "project"),
-        area=str(args.context_area or "general"),
         confidence=args.confidence,
         projects=parse_csv(args.project),
         tags=parse_csv(args.tags),
@@ -382,10 +378,6 @@ def _cmd_chat(args: argparse.Namespace) -> int:
     )
     prompt = _build_chat_prompt(args.question, hits, context_docs)
     agent = AcretaAgent(
-        execution_mode="single",
-        tool_profile="read_only",
-        workflow="chat",
-        purpose="chat_query",
         skills=["acreta"],
     )
     response, session_id = agent.run_sync(prompt, cwd=str(Path.cwd()))
@@ -449,8 +441,8 @@ def _cmd_memory_reset(args: argparse.Namespace) -> int:
         if root in seen:
             continue
         seen.add(root)
-        layout = build_layout(root)
-        result = reset_data_root(layout)
+        layout = build_memory_paths(root)
+        result = reset_memory_root(layout)
         summaries.append({"data_dir": str(root), "removed": result.get("removed") or []})
 
     if args.json:
@@ -508,7 +500,6 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--until")
     sync.add_argument("--max-sessions", type=int, default=50)
     sync.add_argument("--no-extract", action="store_true")
-    sync.add_argument("--no-llm", action="store_true")
     sync.add_argument("--force", action="store_true")
     sync.add_argument("--dry-run", action="store_true")
     sync.add_argument("--ignore-lock", action="store_true")
@@ -520,7 +511,6 @@ def build_parser() -> argparse.ArgumentParser:
     maintain.add_argument("--until")
     maintain.add_argument("--steps", help="Comma-separated maintenance steps")
     maintain.add_argument("--agent", help="Comma-separated agent filter")
-    maintain.add_argument("--no-llm", action="store_true")
     maintain.add_argument("--force", action="store_true")
     maintain.add_argument("--dry-run", action="store_true")
     maintain.set_defaults(func=_cmd_maintain)
@@ -567,8 +557,6 @@ def build_parser() -> argparse.ArgumentParser:
     memory_add.add_argument("--kind", help="Learning kind")
     memory_add.add_argument("--status", help="Decision status")
     memory_add.add_argument("--decided-by", help="Decision owner: user|agent|both")
-    memory_add.add_argument("--convention-scope", help="Convention scope")
-    memory_add.add_argument("--context-area", help="Context area")
     memory_add.add_argument("--confidence", type=float, default=0.7)
     memory_add.add_argument("--project")
     memory_add.add_argument("--tags")

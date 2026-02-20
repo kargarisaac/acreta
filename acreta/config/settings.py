@@ -265,6 +265,7 @@ class Config:
     search_enable_vectors: bool = False
     search_enable_graph: bool = True
     search_graph_depth: int = 1
+    persist_sessions_in_workspace: bool = False
 
     def public_dict(self) -> dict[str, Any]:
         """Return a safe serializable config snapshot for user-facing output."""
@@ -300,6 +301,7 @@ class Config:
             "search_enable_vectors": self.search_enable_vectors,
             "search_enable_graph": self.search_enable_graph,
             "search_graph_depth": self.search_graph_depth,
+            "persist_sessions_in_workspace": self.persist_sessions_in_workspace,
             "graph_export": self.graph_export,
         }
 
@@ -479,11 +481,20 @@ def load_config() -> Config:
     )
 
     graph_export = _parse_bool(_env_or_toml("ACRETA_GRAPH_EXPORT", toml_data, "search", "graph_export", default=False))
+    persist_sessions_in_workspace = _parse_bool(
+        _env_or_toml(
+            "ACRETA_PERSIST_SESSIONS_IN_WORKSPACE",
+            toml_data,
+            "agent",
+            "persist_sessions_in_workspace",
+            default=False,
+        )
+    )
 
-    from acreta.memory.layout import build_layout, ensure_layout
+    from acreta.memory.memory_repo import build_memory_paths, ensure_memory_paths
 
     for data_root in scope.ordered_data_dirs:
-        ensure_layout(build_layout(data_root))
+        ensure_memory_paths(build_memory_paths(data_root))
         _ensure_project_config_exists(data_root)
 
     return Config(
@@ -522,6 +533,7 @@ def load_config() -> Config:
         search_enable_vectors=search_enable_vectors,
         search_enable_graph=search_enable_graph,
         search_graph_depth=search_graph_depth,
+        persist_sessions_in_workspace=persist_sessions_in_workspace,
         graph_export=graph_export,
     )
 

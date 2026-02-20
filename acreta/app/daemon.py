@@ -266,7 +266,6 @@ def _run_maintain_step(
     window_start: datetime | None,
     window_end: datetime,
     agent_filter: list[str] | None,
-    no_llm: bool,
     force: bool,
     dry_run: bool,
 ) -> dict | None:
@@ -285,7 +284,6 @@ def _run_maintain_step(
             window_start=window_start,
             window_end=window_end,
             agent_types=agent_filter,
-            no_llm=no_llm,
         )
     _ = (force, dry_run)
     return None
@@ -296,7 +294,6 @@ def run_sync_once(
     run_id: str | None,
     agent_filter: list[str] | None,
     no_extract: bool,
-    no_llm: bool,
     force: bool,
     max_sessions: int,
     dry_run: bool,
@@ -306,7 +303,7 @@ def run_sync_once(
     window_end: datetime | None = None,
 ) -> tuple[int, SyncSummary]:
     """Run one sync cycle: index sessions, enqueue jobs, process extraction."""
-    from acreta.memory.extract_pipeline import extract_session_memories
+    from acreta.runtime.agent import AcretaAgent
     from acreta.sessions.catalog import (
         IndexedSession,
         claim_session_jobs,
@@ -402,6 +399,10 @@ def run_sync_once(
                 run_ids=[run_id] if run_id else None,
             )
             target_run_ids = [str(item.get("run_id") or "") for item in claimed if item.get("run_id")]
+            lead_agent = AcretaAgent(
+                skills=["acreta"],
+                default_cwd=str(Path.cwd()),
+            )
             for job in claimed:
                 rid = str(job.get("run_id") or "")
                 if not rid:
@@ -409,10 +410,11 @@ def run_sync_once(
                 attempts = max(int(job.get("attempts") or 1), 1)
                 try:
                     with _job_heartbeat(rid, heartbeat_session_job):
-                        result = extract_session_memories(
-                            rid,
-                            no_llm=no_llm,
-                        )
+                        session_path = str(job.get("session_path") or "").strip()
+                        if not session_path:
+                            doc = fetch_session_doc(rid) or {}
+                            session_path = str(doc.get("session_path") or "").strip()
+                        result = lead_agent.run(Path(session_path), run_mode="sync")
                 except Exception as exc:  # pragma: no cover - defensive guard for runtime stability.
                     failed += 1
                     fail_session_job(
@@ -421,22 +423,11 @@ def run_sync_once(
                         retry_backoff_seconds=_retry_backoff_seconds(attempts),
                     )
                     continue
-                step_status = result.get("status")
-                if step_status == "completed":
-                    extracted += 1
-                    learnings_new += int(result.get("learnings_new") or 0)
-                    learnings_updated += int(result.get("learnings_updated") or 0)
-                    complete_session_job(rid)
-                elif step_status == "failed":
-                    failed += 1
-                    fail_session_job(
-                        rid,
-                        error=str(result.get("error") or "extraction_failed"),
-                        retry_backoff_seconds=_retry_backoff_seconds(attempts),
-                    )
-                else:
-                    skipped += 1
-                    complete_session_job(rid)
+                extracted += 1
+                counts = result.get("counts") or {}
+                learnings_new += int(counts.get("add") or 0)
+                learnings_updated += int(counts.get("update") or 0)
+                complete_session_job(rid)
 
         summary = SyncSummary(
             indexed_sessions=indexed_sessions,
@@ -489,7 +480,6 @@ def run_maintain_once(
     until_raw: str | None,
     steps_raw: str | None,
     agent_raw: str | None,
-    no_llm: bool,
     force: bool,
     dry_run: bool,
     parse_duration_to_seconds: Callable[[str], int],
@@ -537,7 +527,6 @@ def run_maintain_once(
                     window_start=window_start,
                     window_end=window_end,
                     agent_filter=parse_agent_filter(agent_raw),
-                    no_llm=no_llm,
                     force=force,
                     dry_run=dry_run,
                 )
@@ -559,7 +548,6 @@ def run_maintain_once(
                 "steps_completed": completed,
                 "steps_failed": failed,
                 "dry_run": dry_run,
-                "no_llm": no_llm,
             },
         )
         data = {
@@ -592,7 +580,6 @@ def run_daemon_once() -> dict:
         run_id=None,
         agent_filter=None,
         no_extract=False,
-        no_llm=False,
         force=False,
         max_sessions=50,
         dry_run=False,
@@ -607,7 +594,6 @@ def run_daemon_once() -> dict:
         until_raw=None,
         steps_raw=None,
         agent_raw=None,
-        no_llm=False,
         force=False,
         dry_run=False,
         parse_duration_to_seconds=parse_duration_to_seconds,

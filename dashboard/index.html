@@ -1100,13 +1100,9 @@
                     <input class="form-check-input" type="checkbox" x-model="$store.refine.form.force" />
                     <span class="form-check-label">Force rerun</span>
                   </label>
-                  <label class="form-check">
-                    <input class="form-check-input" type="checkbox" x-model="$store.refine.form.no_llm" />
-                    <span class="form-check-label">No LLM (metrics only)</span>
-                  </label>
                 </div>
                 <div class="col-12 text-muted small">
-                  CLI parity: <code>window/since/until/agents/max-sessions/steps/force/no-llm</code> plus modes for <code>session</code> and <code>backfill</code>.
+                  CLI parity: <code>window/since/until/agents/max-sessions/steps/force</code> plus modes for <code>session</code> and <code>backfill</code>.
                 </div>
               </div>
 
@@ -1846,7 +1842,6 @@
         max_sessions: 50,
         steps: defaultRefineSteps('window'),
         force: false,
-        no_llm: false,
       };
     }
 
@@ -2300,7 +2295,6 @@
           const payload = {
             mode,
             force: !!form.force,
-            no_llm: !!form.no_llm,
             steps: steps || null,
           };
 
