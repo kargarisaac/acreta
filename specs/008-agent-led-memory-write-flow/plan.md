@@ -25,10 +25,9 @@ Hard constraints from request:
 - **Lead runtime**: `/Users/kargarisaac/codes/personal/acreta/acreta/runtime/agent.py`
 - **Extraction pipeline**: `/Users/kargarisaac/codes/personal/acreta/acreta/memory/extract_pipeline.py`
 - **Summarization pipeline**: `/Users/kargarisaac/codes/personal/acreta/acreta/memory/summarization_pipeline.py`
-- **Models**: `/Users/kargarisaac/codes/personal/acreta/acreta/memory/models.py`
-- **Layout**: `/Users/kargarisaac/codes/personal/acreta/acreta/memory/layout.py`
-- **Store**: `/Users/kargarisaac/codes/personal/acreta/acreta/memory/store.py`
-- **Current issue**: `agent.py` sets `permission_mode="bypassPermissions"` and passes `extra_args={"no-session-persistence": None}`.
+- **Memory schema/taxonomy**: `/Users/kargarisaac/codes/personal/acreta/acreta/memory/memory_record.py`
+- **Memory repository/layout API**: `/Users/kargarisaac/codes/personal/acreta/acreta/memory/memory_repo.py`
+- **Current runtime status**: lead flow is prompt-first Claude SDK orchestration with hook-enforced write boundaries.
 
 Code facts relevant to your flow:
 - pipelines already support direct file-path entry points:
@@ -189,10 +188,9 @@ Acceptance Scenario H: Workspace run folder is complete.
 - Verification: one flat run folder contains expected output files without date/time nesting.
 
 ## Rollout Plan
-- Phase 1: implement behind flag `agent_memory_write_v2`.
-- Phase 2: enable for manual sync path.
-- Phase 3: enable default daemon hot/cold/sync paths.
-- Phase 4: remove deprecated memory-type branches after burn-in.
+- Phase 1: implement as the single active lead memory-write path (no version flags).
+- Phase 2: keep manual sync and daemon hot/cold/sync on the same unified path.
+- Phase 3: prune stale references/tests/docs continuously with no legacy branch.
 
 ## Risks + Mitigations
 - **Risk 1**: Built-in Explore output not structured enough.
@@ -217,68 +215,89 @@ Acceptance Scenario H: Workspace run folder is complete.
 
 ## Todo List (Phased)
 Phase 1: Core Contract + Inputs
-- [ ] Define final lead contract with required `trace_path` and optional `memory_root`, `workspace_root`, `run_mode`.
-- [ ] Remove any path that loads full trace content into lead-agent prompt context.
-- [ ] Keep one minimal orchestration entrypoint in runtime (no duplicate wrappers).
-- [ ] Ensure no fallback/legacy code paths remain in the new flow.
+- [x] Define final lead contract with required `trace_path` and optional `memory_root`, `workspace_root`, `run_mode`.
+- [x] Remove any path that loads full trace content into lead-agent prompt context.
+- [x] Keep one minimal orchestration entrypoint in runtime (no duplicate wrappers).
+- [x] Ensure no fallback/legacy code paths remain in the new flow.
 
 Phase 2: Central Memory Type Registry
-- [ ] Add one canonical memory type module as single source for types and definitions.
-- [ ] Reduce taxonomy to `decision`, `learning`, `summary`.
-- [ ] Move `context` and `convention` semantics into `learning` tags/subtypes.
-- [ ] Update pipelines and models to import from central registry only (remove duplicated literals).
-- [ ] Delete dead/legacy type-handling branches.
+- [x] Add one canonical memory type module as single source for types and definitions.
+- [x] Reduce taxonomy to `decision`, `learning`, `summary`.
+- [x] Move `context` and `convention` semantics into `learning` tags/subtypes.
+- [x] Update pipelines and models to import from central registry only (remove duplicated literals).
+- [x] Delete dead/legacy type-handling branches.
 
 Phase 3: Workspace Run Folder + Artifacts
-- [ ] Implement one flat per-run folder: `.acreta/workspace/<run_mode>-<YYYYMMDD-HHMMSS>-<shortid>/`.
-- [ ] Write flat run files: `extract.json`, `summary.json`, `memory_actions.json`, `agent.log`, `subagents.log`, optional `session.log`.
-- [ ] Ensure intermediate state is file-based in run folder, not prompt-memory based.
-- [ ] Keep implementation minimal (no extra folder trees, no optional complexity by default).
+- [x] Implement one flat per-run folder: `.acreta/workspace/<run_mode>-<YYYYMMDD-HHMMSS>-<shortid>/`.
+- [x] Write flat run files: `extract.json`, `summary.json`, `memory_actions.json`, `agent.log`, `subagents.log`, optional `session.log`.
+- [x] Ensure intermediate state is file-based in run folder, not prompt-memory based.
+- [x] Keep implementation minimal (no extra folder trees, no optional complexity by default).
 
 Phase 4: Lead Orchestration (Minimal Claude SDK)
-- [ ] Add/confirm `TodoWrite` usage with fixed checklist lifecycle.
-- [ ] Run extraction and summarization pipelines by `trace_path` CLI calls and save outputs to files.
-- [ ] Use built-in Explore subagents first for read-only matching.
-- [ ] Keep write authority in lead only (subagents read-only).
-- [ ] Implement deterministic `add|update|no-op` decision logic.
-- [ ] Enforce summary always writes to `.acreta/memory/summaries/`.
+- [x] Add/confirm `TodoWrite` usage with fixed checklist lifecycle.
+- [x] Run extraction and summarization pipelines by `trace_path` CLI calls and save outputs to files.
+- [x] Use built-in Explore subagents first for read-only matching.
+- [x] Keep write authority in lead only (subagents read-only).
+- [x] Implement deterministic `add|update|no-op` decision logic.
+- [x] Enforce summary always writes to `.acreta/memory/summaries/`.
 
 Phase 5: Security + Session Scope
-- [ ] Remove `bypassPermissions` for this flow.
-- [ ] Add `PreToolUse` hook deny rules for writes outside `memory_root` and current run folder.
-- [ ] Keep SDK toolsets minimal for lead and stricter for subagents.
-- [ ] Keep session persistence behavior scoped to this project SDK flow only.
-- [ ] If enabled, set `CLAUDE_CONFIG_DIR` only in this SDK process env; do not alter global Claude defaults.
+- [x] Remove `bypassPermissions` for this flow.
+- [x] Add `PreToolUse` hook deny rules for writes outside `memory_root` and current run folder.
+- [x] Keep SDK toolsets minimal for lead and stricter for subagents.
+- [x] Keep session persistence behavior scoped to this project SDK flow only.
+- [x] If enabled, set `CLAUDE_CONFIG_DIR` only in this SDK process env; do not alter global Claude defaults.
 
 Phase 6: Simplification + Cleanup
-- [ ] Remove dead code paths created by taxonomy reduction and flow simplification.
-- [ ] Remove legacy migration/version branches related to this flow.
-- [ ] Remove package fallbacks/try-except fallbacks where package absence should raise.
-- [ ] Consolidate duplicated helpers/functions; keep minimal number of functions and lines.
-- [ ] Run static search for stale references and delete unreachable code.
+- [x] Remove dead code paths created by taxonomy reduction and flow simplification.
+- [x] Remove legacy migration/version branches related to this flow.
+- [x] Remove package fallbacks/try-except fallbacks where package absence should raise.
+- [x] Consolidate duplicated helpers/functions; keep minimal number of functions and lines.
+- [x] Run static search for stale references and delete unreachable code.
 
 Phase 7: Documentation Updates
-- [ ] Update architecture docs in `/Users/kargarisaac/codes/personal/acreta/docs/`.
-- [ ] Update root `/Users/kargarisaac/codes/personal/acreta/README.md`.
-- [ ] Update root `/Users/kargarisaac/codes/personal/acreta/AGENTS.md`.
-- [ ] Update all folder-level README files touched by boundary/flow changes.
-- [ ] Document new memory taxonomy, workspace run folder format, and lead/subagent responsibilities.
+- [x] Update architecture docs in `/Users/kargarisaac/codes/personal/acreta/docs/`.
+- [x] Update root `/Users/kargarisaac/codes/personal/acreta/README.md`.
+- [x] Update root `/Users/kargarisaac/codes/personal/acreta/AGENTS.md`.
+- [x] Update all folder-level README files touched by boundary/flow changes.
+- [x] Document new memory taxonomy, workspace run folder format, and lead/subagent responsibilities.
 
 Phase 8: Testing (Required)
-- [ ] Unit tests: add/update tests for central types, path-only orchestration, summary routing, decision logic.
-- [ ] Unit tests: add/update tests for hook-based path enforcement and no-trace-in-context behavior.
-- [ ] Integration tests: run real pipeline path using trace files and verify artifact outputs + memory writes.
-- [ ] Integration tests: verify project-scoped session persistence toggle behavior.
-- [ ] E2E tests: run full hot/cold/sync flow and verify add/update/no-op + summaries + run folder outputs.
-- [ ] Execute test suites:
+- [x] Unit tests: add/update tests for central types, path-only orchestration, summary routing, decision logic.
+- [x] Unit tests: add/update tests for hook-based path enforcement and no-trace-in-context behavior.
+- [x] Integration tests: run real pipeline path using trace files and verify artifact outputs + memory writes.
+- [x] Integration tests: verify project-scoped session persistence toggle behavior.
+- [x] E2E tests: run full hot/cold/sync flow and verify add/update/no-op + summaries + run folder outputs.
+- [x] Execute test suites:
   - `scripts/run_tests.sh unit`
   - `scripts/run_tests.sh integration`
   - `scripts/run_tests.sh e2e`
   - optional full sweep: `scripts/run_tests.sh all`
-- [ ] Verify acceptance scenarios A-H all pass and map each to concrete test evidence.
+- [x] Verify acceptance scenarios A-H all pass and map each to concrete test evidence.
 
 Phase 9: Final Quality Gate
-- [ ] Confirm no dead code, no legacy code, no fallback code remains for this feature path.
-- [ ] Confirm code is minimal and readable with updated docstrings where needed.
-- [ ] Confirm docs and tests are in sync with final behavior.
-- [ ] Prepare concise change summary with risks, mitigations, and follow-up items.
+- [x] Confirm no dead code, no legacy code, no fallback code remains for this feature path.
+- [x] Confirm code is minimal and readable with updated docstrings where needed.
+- [x] Confirm docs and tests are in sync with final behavior.
+- [x] Prepare concise change summary with risks, mitigations, and follow-up items.
+
+## Acceptance Evidence (A-H)
+- A (`trace_path` only, no full trace injection):
+  - `tests/test_runtime_agent_contract.py::test_memory_write_prompt_uses_trace_path_not_trace_content`
+- B (Todo checklist lifecycle in lead contract):
+  - `acreta/runtime/agent.py` lead prompt checklist + `TodoWrite` rules
+- C (pipeline artifacts produced):
+  - `tests/test_agent_memory_write_flow.py::test_agent_run_writes_summary_to_summaries_folder`
+  - `tests/test_agent_memory_write_integration.py::test_memory_write_sync_artifacts_and_summary_path`
+- D (summary always routes to `summaries`):
+  - `tests/test_agent_memory_write_flow.py::test_agent_run_writes_summary_to_summaries_folder`
+- E (update/no-op behavior without duplication):
+  - `tests/test_agent_memory_write_flow.py::test_agent_run_marks_duplicate_candidate_as_no_op`
+- F (write boundary enforced by hook):
+  - `tests/test_runtime_agent_contract.py::test_pretool_write_hook_enforces_allowed_roots`
+- G (central registry drives memory type usage):
+  - `acreta/memory/memory_record.py` + imports in pipelines/repository
+  - `tests/test_memory_layout.py`
+- H (workspace run folder completeness):
+  - `tests/test_runtime_agent_contract.py::test_memory_write_run_contract_creates_workspace_folder`
+  - `tests/test_agent_memory_write_integration.py::test_memory_write_sync_artifacts_and_summary_path`

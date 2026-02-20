@@ -6,7 +6,7 @@ Continual memory layer for coding agents.
 
 Acreta Memory V2 is file-first and primitive-first.
 
-- Primitive folders: `decisions`, `learnings`, `conventions`, `context`
+- Primitive folders: `decisions`, `learnings`, `summaries`
 - Project memory first: `<repo>/.acreta/`
 - Global fallback memory: `~/.acreta/`
 - Search default: `files` (no index required)
@@ -18,9 +18,9 @@ This keeps memory readable by humans and easy for agents to traverse.
 Lead flow:
 
 1. Extract candidates from transcript archive.
-2. Lead agent delegates parallel read-only explorer tasks for retrieval evidence.
-3. Lead decides `add|update|no-op`.
-4. Lead writes memory and sidecars.
+2. Lead agent runs `TodoWrite` checklist and delegates read-only explorer tasks (`Explore` first).
+3. Lead runs deterministic decision policy for `add|update|no-op`.
+4. Lead writes memory and sidecars under hook-enforced write boundaries.
 5. `sync` stays lightweight; cold rebuilds stay in `maintain`.
 
 ## How to use
@@ -91,13 +91,20 @@ Project scope:
   memory/
     decisions/
     learnings/
-    conventions/
-    context/
+    summaries/
   meta/
     evidence/
     state/
     traces/
       sessions/
+  workspace/
+    <run_mode>-<YYYYMMDD-HHMMSS>-<shortid>/
+      extract.json
+      summary.json
+      memory_actions.json
+      agent.log
+      subagents.log
+      session.log
   index/   # reserved
 ```
 
@@ -109,13 +116,20 @@ Global fallback scope:
   memory/
     decisions/
     learnings/
-    conventions/
-    context/
+    summaries/
   meta/
     evidence/
     state/
     traces/
       sessions/
+  workspace/
+    <run_mode>-<YYYYMMDD-HHMMSS>-<shortid>/
+      extract.json
+      summary.json
+      memory_actions.json
+      agent.log
+      subagents.log
+      session.log
   index/   # reserved
 ```
 
@@ -123,8 +137,7 @@ Global fallback scope:
 
 - `decision`: `id,title,status,decided_by,tags,related,created,updated`
 - `learning`: `id,title,kind,tags,related,created,updated`
-- `convention`: `id,title,scope,tags,related,created,updated`
-- `context`: `id,title,area,tags,related,created,updated`
+- `summary`: `id,title,description,date,time,coding_agent,raw_trace_path,run_id,repo_name,related,created,updated`
 
 Operational metadata is not in frontmatter.
 It is stored in sidecars under `meta/state` and `meta/evidence`.

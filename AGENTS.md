@@ -30,6 +30,7 @@ General coding simplification source of truth is [docs/simple-coding-rules.md](d
 - Follow [docs/simple-coding-rules.md](docs/simple-coding-rules.md) for general coding style, simplification, strict schemas, and testing expectations.
 - Never do normalization for chat traces. feed the raw traces to llm.
 - DSPY uses pydantic. no need for separate normalization or check.
+- Hard boundary: Acreta memory flow must always use LLM extraction/summarization. Never add `--no-llm`, `no_llm`, mock-summary shortcuts, or any non-LLM bypass path.
 
 ## Run locally
 
@@ -46,9 +47,10 @@ General coding simplification source of truth is [docs/simple-coding-rules.md](d
 
 - Project-first memory root: `<repo>/.acreta/`
 - Global fallback memory root: `~/.acreta/`
-- Primitive folders: `memory/decisions`, `memory/learnings`, `memory/conventions`, `memory/context`
+- Primitive folders: `memory/decisions`, `memory/learnings`, `memory/summaries`
 - Sidecars: `meta/state`, `meta/evidence`
 - Trace archive: `meta/traces/sessions`
+- Run workspace: `workspace/<run_mode>-<YYYYMMDD-HHMMSS>-<shortid>/`
 - Optional indexes: `index/fts.sqlite3`, `index/graph.sqlite3`, `index/vectors.lance/`
 
 ## Conventions
@@ -134,3 +136,4 @@ If a future design assumes “Claude cannot do X”, verify against current docs
   4. Apply deterministic write/delete policy in core runtime.
   5. Return answer + evidence (which memories used, why).
 - Lead agent is the only component allowed to persist/delete memory records.
+- Memory-write runs must enforce `PreToolUse` guardrails so `Write|Edit` stay inside `memory_root` and current run workspace folder.

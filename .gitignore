@@ -28,6 +28,7 @@ site/
 .env
 .acreta/
 .vscode/
+.cur
 
 dev-docs/
 
