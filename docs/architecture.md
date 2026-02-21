@@ -37,7 +37,7 @@ flowchart TD
     F --> H["Files Search (default)"]
     H --> L["chat / memory search"]
 
-    M["maintain"] --> N["consolidate + decay + report"]
+    M["maintain"] --> N["Agent-led: scan, merge, archive, consolidate, report"]
 ```
 
 ## Storage model
@@ -46,7 +46,9 @@ Canonical memory files:
 
 - `.acreta/memory/decisions/*.md`
 - `.acreta/memory/learnings/*.md`
-- `.acreta/memory/summaries/*.md`
+- `.acreta/memory/summaries/YYYYMMDD/HHMMSS/{slug}.md`
+- `.acreta/memory/archived/decisions/*.md` (soft-deleted)
+- `.acreta/memory/archived/learnings/*.md` (soft-deleted)
 
 Trace archive:
 
@@ -54,12 +56,18 @@ Trace archive:
 
 Run workspace artifacts:
 
+Sync runs:
 - `.acreta/workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/extract.json`
 - `.acreta/workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/summary.json`
 - `.acreta/workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/memory_actions.json`
 - `.acreta/workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/agent.log`
 - `.acreta/workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/subagents.log`
 - `.acreta/workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/session.log`
+
+Maintain runs:
+- `.acreta/workspace/maintain-<YYYYMMDD-HHMMSS>-<shortid>/maintain_actions.json`
+- `.acreta/workspace/maintain-<YYYYMMDD-HHMMSS>-<shortid>/agent.log`
+- `.acreta/workspace/maintain-<YYYYMMDD-HHMMSS>-<shortid>/subagents.log`
 
 Index folder:
 
@@ -92,7 +100,7 @@ Memory scope modes:
 ## Runtime paths
 
 - `sync`: discover/index sessions, run lead by `trace_path`, write run artifacts to workspace folder, run lead decision (`add|update|no-op`), write memory + summaries.
-- `maintain`: consolidate duplicates, decay, write extract report (stubbed for agentic rewrite).
+- `maintain`: agent-led offline memory refinement. Scans existing memories, merges duplicates, archives low-value entries, consolidates related memories. Soft-deletes via `mv` to `archived/`. Single agent run with comprehensive prompt.
 - Query path (`chat`, `memory search`) is read-only.
 
 Security boundary for memory-write flow:

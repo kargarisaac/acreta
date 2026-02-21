@@ -8,8 +8,8 @@ The package is organized by feature boundary:
 - `app/`: CLI, daemon loop, dashboard server
 - `config/`: config loading, scope resolution, logging
 - `sessions/`: platform indexing, session catalog, queue
-- `memory/`: memory taxonomy/record schema (`memory_record.py`), repository paths/write API (`memory_repo.py`), maintenance, extraction pipeline, trace summarization pipeline
-- `runtime/`: lead agent runtime and provider wiring
+- `memory/`: memory taxonomy/record schema (`memory_record.py`), repository paths (`memory_repo.py`), extraction pipeline, trace summarization pipeline
+- `runtime/`: lead agent runtime (`agent.py`), provider wiring, prompt builders (`prompts/`)
 - `adapters/`: platform-specific session readers
 
 ## How to use

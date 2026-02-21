@@ -48,8 +48,10 @@ General coding simplification source of truth is [docs/simple-coding-rules.md](d
 - Project-first memory root: `<repo>/.acreta/`
 - Global fallback memory root: `~/.acreta/`
 - Primitive folders: `memory/decisions`, `memory/learnings`, `memory/summaries`
+- Archive folders: `memory/archived/decisions`, `memory/archived/learnings`
+- Summaries layout: `memory/summaries/YYYYMMDD/HHMMSS/{slug}.md`
 - Trace archive: `meta/traces/sessions`
-- Run workspace: `workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/`
+- Run workspace: `workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/` or `workspace/maintain-<YYYYMMDD-HHMMSS>-<shortid>/`
 - Optional indexes: `index/fts.sqlite3`, `index/graph.sqlite3`, `index/vectors.lance/`
 
 ## Conventions

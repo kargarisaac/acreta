@@ -27,7 +27,7 @@ Canonical command:
 - `maintain`
 - `daemon`
 - `dashboard`
-- `memory` (`search`, `list`, `add`, `feedback`, `export`, `reset`)
+- `memory` (`search`, `list`, `add`, `export`, `reset`)
 - `chat`
 - `status`
 
@@ -54,7 +54,6 @@ acreta sync --agent claude,codex
 acreta sync --window 30d|all
 acreta sync --since 2026-02-01T00:00:00Z --until 2026-02-08T00:00:00Z
 acreta sync --no-extract
-acreta sync --no-llm
 acreta sync --force
 acreta sync --max-sessions 100
 acreta sync --dry-run
@@ -70,17 +69,14 @@ Notes:
 
 ```bash
 acreta maintain
-acreta maintain --window 30d|all
-acreta maintain --since 2026-02-01T00:00:00Z --until 2026-02-08T00:00:00Z
-acreta maintain --steps consolidate,decay,report
-acreta maintain --agent claude,codex
-acreta maintain --no-llm
 acreta maintain --force
 acreta maintain --dry-run
 ```
 
 Notes:
-- `maintain` is the cold path for consolidate/decay/report.
+- `maintain` is the cold path for offline memory refinement (merge duplicates, archive low-value, consolidate related).
+- Runs a single agent invocation that scans existing memories and decides what to merge/archive/consolidate.
+- Soft-deletes archived memories to `memory/archived/{decisions,learnings}/`.
 
 ### `acreta daemon`
 
@@ -102,9 +98,8 @@ acreta dashboard --host 127.0.0.1 --port 8765
 ```bash
 acreta memory search "<query>" [--project <project>] [--limit 20]
 acreta memory list [--project <project>] [--limit 50]
-acreta memory add --primitive decision|learning|convention|context --title "<title>" --body "<body>"
-acreta memory add --learning-type insight|procedure|friction|pitfall|preference ...
-acreta memory feedback <memory_id> --useful|--not-useful
+acreta memory add --primitive decision|learning --title "<title>" --body "<body>"
+acreta memory add --kind insight|procedure|friction|pitfall|preference ...
 acreta memory export [--project <project>] [--format json|markdown] [--output <path>]
 acreta memory reset --scope project|global|both --yes
 ```
