@@ -188,14 +188,15 @@ if __name__ == "__main__":
             metrics=metrics if isinstance(metrics, dict) else {},
         )
 
-        # Write summary markdown if --memory-root provided
-        if args.memory_root:
-            mr = Path(args.memory_root).expanduser().resolve()
-            run_id = (metadata if isinstance(metadata, dict) else {}).get("run_id", "")
-            summary_path = write_summary_markdown(payload, mr, run_id=run_id)
-            payload["summary_path"] = str(summary_path)
+        # Write summary markdown and output pointer
+        if not args.memory_root:
+            raise SystemExit("--memory-root is required")
+        mr = Path(args.memory_root).expanduser().resolve()
+        run_id = (metadata if isinstance(metadata, dict) else {}).get("run_id", "")
+        summary_path = write_summary_markdown(payload, mr, run_id=run_id)
+        output_data = {"summary_path": str(summary_path)}
 
-        encoded = json.dumps(payload, ensure_ascii=True, indent=2) + "\n"
+        encoded = json.dumps(output_data, ensure_ascii=True, indent=2) + "\n"
         if args.output:
             output_path = Path(args.output).expanduser()
             output_path.parent.mkdir(parents=True, exist_ok=True)

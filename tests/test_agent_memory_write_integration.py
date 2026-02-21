@@ -46,11 +46,15 @@ async def _fake_run_sdk_once(
     memory_root = _extract_memory_root_from_prompt(prompt)
 
     Path(artifacts["extract"]).write_text("[]\n", encoding="utf-8")
+
+    summary_memory_path = memory_root / "summaries" / "summary--s202602200001.md"
+    summary_memory_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_memory_path.write_text(
+        "---\nid: s202602200001\ntitle: Summary\n---\nSummary body\n", encoding="utf-8"
+    )
     Path(artifacts["summary"]).write_text(
         json.dumps(
-            {"title": "Run summary", "summary": "Summary body"},
-            ensure_ascii=True,
-            indent=2,
+            {"summary_path": str(summary_memory_path)}, ensure_ascii=True, indent=2
         )
         + "\n",
         encoding="utf-8",
@@ -67,12 +71,6 @@ async def _fake_run_sdk_once(
         )
         + "\n",
         encoding="utf-8",
-    )
-
-    summary_memory_path = memory_root / "summaries" / "summary--s202602200001.md"
-    summary_memory_path.parent.mkdir(parents=True, exist_ok=True)
-    summary_memory_path.write_text(
-        "---\nid: s202602200001\ntitle: Summary\n---\nSummary body\n", encoding="utf-8"
     )
 
     report = {

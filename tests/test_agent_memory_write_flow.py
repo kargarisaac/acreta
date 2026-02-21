@@ -65,21 +65,17 @@ def _fake_sdk_run_factory(
         Path(artifacts["extract"]).write_text(
             json.dumps(candidates, ensure_ascii=True, indent=2) + "\n", encoding="utf-8"
         )
+        summary_memory_path = (
+            memory_root / "summaries" / f"summary--s20260220{calls['index']:04d}.md"
+        )
+        summary_memory_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_memory_path.write_text(
+            "---\nid: s202602200001\ntitle: Summary\n---\nSummary body\n",
+            encoding="utf-8",
+        )
         Path(artifacts["summary"]).write_text(
             json.dumps(
-                {
-                    "title": "Run summary",
-                    "description": "Session summary",
-                    "summary": "Summary body",
-                    "date": "2026-02-20",
-                    "time": "12:00:00",
-                    "coding_agent": "codex",
-                    "raw_trace_path": "/tmp/trace.jsonl",
-                    "run_id": "run-1",
-                    "repo_name": "acreta",
-                },
-                ensure_ascii=True,
-                indent=2,
+                {"summary_path": str(summary_memory_path)}, ensure_ascii=True, indent=2
             )
             + "\n",
             encoding="utf-8",
@@ -95,15 +91,6 @@ def _fake_sdk_run_factory(
                 ensure_ascii=True,
             )
             + "\n",
-            encoding="utf-8",
-        )
-
-        summary_memory_path = (
-            memory_root / "summaries" / f"summary--s20260220{calls['index']:04d}.md"
-        )
-        summary_memory_path.parent.mkdir(parents=True, exist_ok=True)
-        summary_memory_path.write_text(
-            "---\nid: s202602200001\ntitle: Summary\n---\nSummary body\n",
             encoding="utf-8",
         )
 

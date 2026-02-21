@@ -437,9 +437,8 @@ class AcretaAgent:
             "- Use Bash to run DSPy pipelines:\n"
             f"  1) {extract_cmd}\n"
             f"  2) {summary_cmd}\n"
-            "- Read extract.json and summary.json from artifact paths.\n"
-            "- The summary pipeline writes summaries directly to memory_root/summaries/ via --memory-root. "
-            "The summary_path will be in the summary.json output. Do NOT write summary files yourself.\n"
+            "- Read extract.json from artifact paths.\n"
+            "- The summary pipeline writes the summary directly to memory_root/summaries/ via --memory-root. Do NOT write summary files yourself.\n"
             "- For candidate matching, use Task with built-in Explore subagent first. If unavailable, use Task with `explore-reader`.\n"
             "- Explorer subagents are read-only and must return: candidate_id, action_hint, matched_file, evidence.\n"
             "- Lead agent is the only writer and final decider.\n"
@@ -450,7 +449,7 @@ class AcretaAgent:
             "- Write/update markdown memory files with YAML frontmatter in memory_root/decisions, memory_root/learnings.\n"
             "- If extract returns 0 candidates, write an empty JSONL file to subagents_log (explorer is skipped).\n"
             f"- Write explorer outputs to {artifact_paths['subagents_log']} as JSONL.\n"
-            f"- Write run report JSON to {artifact_paths['memory_actions']} with keys: run_id, todos, actions, counts, written_memory_paths, summary_path, trace_path.\n"
+            f"- Write run report JSON to {artifact_paths['memory_actions']} with keys: run_id, todos, actions, counts, written_memory_paths, trace_path.\n"
             "- Include overlap score evidence in actions when action is update/no_op.\n"
             "- counts keys must be: add, update, no_op.\n"
             "- Every written/updated file path must be absolute.\n\n"
@@ -561,6 +560,32 @@ class AcretaAgent:
         for key in ("extract", "summary", "memory_actions", "subagents_log"):
             if not artifact_paths[key].exists():
                 raise RuntimeError(f"missing_artifact:{artifact_paths[key]}")
+
+        # Read summary_path directly from pipeline output (not agent report)
+        try:
+            summary_artifact = json.loads(
+                artifact_paths["summary"].read_text(encoding="utf-8")
+            )
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"invalid_json_artifact:{artifact_paths['summary']}"
+            ) from exc
+        raw_summary = str(
+            (summary_artifact if isinstance(summary_artifact, dict) else {}).get(
+                "summary_path", ""
+            )
+        ).strip()
+        if not raw_summary:
+            raise RuntimeError("missing_summary_path_in_pipeline_output")
+        summary_path_resolved = Path(raw_summary).resolve()
+        if not self._is_within(summary_path_resolved, resolved_memory_root):
+            raise RuntimeError(
+                f"summary_path_outside_memory_root:{summary_path_resolved}"
+            )
+        if not summary_path_resolved.exists():
+            raise RuntimeError(f"summary_path_not_found:{summary_path_resolved}")
+        summary_path = str(summary_path_resolved)
+
         try:
             report = json.loads(
                 artifact_paths["memory_actions"].read_text(encoding="utf-8")
@@ -593,21 +618,6 @@ class AcretaAgent:
             ):
                 raise RuntimeError(f"report_path_outside_allowed_roots:{rp}")
             written_memory_paths.append(str(rp))
-
-        raw_summary = str(report.get("summary_path") or "").strip()
-        if not raw_summary:
-            raise RuntimeError("missing_summary_path_in_report")
-        summary_path_resolved = Path(raw_summary).resolve()
-        if not (
-            self._is_within(summary_path_resolved, resolved_memory_root)
-            or self._is_within(summary_path_resolved, run_folder)
-        ):
-            raise RuntimeError(
-                f"summary_path_outside_allowed_roots:{summary_path_resolved}"
-            )
-        if not summary_path_resolved.exists():
-            raise RuntimeError(f"summary_path_not_found:{summary_path_resolved}")
-        summary_path = str(summary_path_resolved)
 
         return {
             "trace_path": str(trace_file),
