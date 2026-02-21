@@ -66,8 +66,11 @@ def test_removed_command_rejected() -> None:
     assert exc.value.code == 2
 
 
-def test_status_json_output_shape(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_status_json_output_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from acreta.config import reload_config
+
     env = {
         "ACRETA_DATA_DIR": str(tmp_path),
         "ACRETA_MEMORY_DIR": str(tmp_path / "memory"),
@@ -94,7 +97,7 @@ def test_chat_uses_context_docs_when_memory_signal_is_thin(
         def __init__(self, **_kwargs) -> None:
             pass
 
-        def run_sync(self, prompt: str, cwd: str | None = None):
+        def chat(self, prompt: str, cwd: str | None = None):
             _ = cwd
             captured["prompt"] = prompt
             return "answer", "agent-session-1"

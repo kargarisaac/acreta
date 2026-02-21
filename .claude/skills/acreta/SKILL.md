@@ -21,7 +21,7 @@ CLI source of truth:
 - `acreta maintain`
 - `acreta daemon`
 - `acreta dashboard`
-- `acreta memory search|list|add|feedback|export|reset`
+- `acreta memory search|list|add|export|reset`
 - `acreta chat`
 - `acreta status`
 
@@ -30,7 +30,8 @@ CLI source of truth:
 - Lead agent is the only writer and final decision maker.
 - DSPy extraction uses `dspy.RLM` on Ollama model `qwen3:8b`.
 - Explorer subagents are read-only and gather evidence in parallel via `Task`.
-- Decision actions are `add`, `update`, `no-op`.
+- Sync decision actions are `add`, `update`, `no-op`.
+- Maintain actions are `merge`, `archive`, `consolidate`, `unchanged`.
 - Keep `related` values as explicit ids/slugs.
 - Do not depend on wikilink syntax.
 

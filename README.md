@@ -21,7 +21,7 @@ Lead flow:
 2. Lead agent runs `TodoWrite` checklist and delegates read-only explorer tasks (`Explore` first).
 3. Lead runs deterministic decision policy for `add|update|no-op`.
 4. Lead writes memory under hook-enforced write boundaries.
-5. `sync` stays lightweight; cold rebuilds stay in `maintain`.
+5. `sync` stays lightweight; offline refinement (merge, dedupe, forget) runs in `maintain`.
 
 ## How to use
 
@@ -92,6 +92,12 @@ Project scope:
     decisions/
     learnings/
     summaries/
+      YYYYMMDD/
+        HHMMSS/
+          {slug}.md
+    archived/
+      decisions/
+      learnings/
   meta/
     traces/
       sessions/
@@ -103,31 +109,14 @@ Project scope:
       agent.log
       subagents.log
       session.log
-  index/   # reserved
-```
-
-Global fallback scope:
-
-```text
-~/.acreta/
-  config.toml
-  memory/
-    decisions/
-    learnings/
-    summaries/
-  meta/
-    traces/
-      sessions/
-  workspace/
-    sync-<YYYYMMDD-HHMMSS>-<shortid>/
-      extract.json
-      summary.json
-      memory_actions.json
+    maintain-<YYYYMMDD-HHMMSS>-<shortid>/
+      maintain_actions.json
       agent.log
       subagents.log
-      session.log
   index/   # reserved
 ```
+
+Global fallback scope follows the same layout under `~/.acreta/`.
 
 ## Primitive frontmatter (lean)
 
@@ -148,5 +137,4 @@ Memory reset is explicit and destructive.
 ## Docs map
 
 - Runtime architecture: `docs/architecture.md`
-- Manual validation: `docs/manual-test-pre-phase-3.md`
 - CLI source of truth: `.claude/skills/acreta/cli-reference.md`

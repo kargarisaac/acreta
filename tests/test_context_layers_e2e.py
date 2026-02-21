@@ -24,7 +24,7 @@ class TestContextLayersE2E(unittest.TestCase):
                 def __init__(self, **_kwargs) -> None:
                     pass
 
-                def run_sync(self, prompt: str, cwd: str | None = None):
+                def chat(self, prompt: str, cwd: str | None = None):
                     _ = (prompt, cwd)
                     return "answer", "sid-1"
 

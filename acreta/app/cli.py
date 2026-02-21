@@ -33,6 +33,7 @@ from acreta.config.settings import get_config
 from acreta.memory.memory_repo import build_memory_paths, reset_memory_root
 from acreta.memory.memory_record import MemoryRecord, MemoryType, memory_folder, slugify
 from acreta.runtime.agent import AcretaAgent
+from acreta.runtime.prompts.chat import build_chat_prompt, looks_like_auth_error
 from acreta.sessions.catalog import (
     count_fts_indexed,
     count_session_jobs_by_status,
@@ -59,7 +60,7 @@ def _list_memory_files(memory_dir: Path) -> list[Path]:
     for mtype in MemoryType:
         folder = memory_dir / memory_folder(mtype)
         if folder.exists():
-            paths.extend(sorted(folder.glob("*.md")))
+            paths.extend(sorted(folder.rglob("*.md")))
     return paths
 
 
@@ -187,16 +188,8 @@ def _cmd_sync(args: argparse.Namespace) -> int:
 def _cmd_maintain(args: argparse.Namespace) -> int:
     """Run one maintain command invocation and print summary output."""
     code, payload = run_maintain_once(
-        window=args.window,
-        since_raw=args.since,
-        until_raw=args.until,
-        steps_raw=args.steps,
-        agent_raw=args.agent,
         force=args.force,
         dry_run=args.dry_run,
-        parse_duration_to_seconds=parse_duration_to_seconds,
-        parse_csv=parse_csv,
-        parse_agent_filter=parse_agent_filter,
     )
     if args.json:
         _emit(json.dumps(payload, indent=2, ensure_ascii=True))
@@ -296,7 +289,7 @@ def _cmd_memory_add(args: argparse.Namespace) -> int:
     kind = str(args.kind or "insight")
     record = MemoryRecord(
         id=slugify(args.title),
-        primitive=cast(Literal["decision", "learning"], primitive.value),
+        primitive=primitive.value,
         kind=kind,
         title=args.title,
         body=args.body,
@@ -350,70 +343,16 @@ def _cmd_memory_export(args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_chat_prompt(
-    question: str, hits: list[dict[str, Any]], context_docs: list[dict[str, Any]]
-) -> str:
-    """Build the final agent prompt with memory/context evidence blocks."""
-    context_lines = [
-        (
-            f"- {fm.get('id', '?')} conf={fm.get('confidence', '?')}: "
-            f"{fm.get('title', '?')} :: {str(fm.get('_body', '')).strip()[:260]}"
-        )
-        for fm in hits
-    ]
-    context_block = "\n".join(context_lines) or "(no relevant memories)"
-
-    context_doc_lines = []
-    for row in context_docs:
-        doc_id = str(row.get("doc_id") or "")
-        title = str(row.get("title") or "")
-        body = str(row.get("body") or "").strip()
-        snippet = " ".join(body.split())[:260]
-        context_doc_lines.append(f"- {doc_id}: {title} :: {snippet}")
-    context_doc_block = (
-        "\n".join(context_doc_lines)
-        if context_doc_lines
-        else "(no context docs loaded)"
-    )
-
-    return (
-        "Answer the user question using the memory evidence below.\n"
-        "Retrieval contract:\n"
-        "- Lead handles retrieval strategy.\n"
-        "- Delegate parallel read-only Task explorers with dynamic fan-out.\n"
-        "- Search project-first, then global fallback.\n"
-        "- Return evidence with file paths and line refs.\n"
-        "- Use explicit ids/slugs only in related references (no wikilink syntax).\n"
-        "If memory is missing or uncertain, say that clearly.\n"
-        "Cite learning ids and context doc ids you used.\n\n"
-        f"Question:\n{question}\n\n"
-        f"Memory evidence:\n{context_block}\n"
-        f"\nContext docs (loaded only if needed):\n{context_doc_block}\n"
-    )
-
-
-def _looks_like_auth_error(response: str) -> bool:
-    """Return whether the response text indicates auth configuration failure."""
-    text = str(response or "").lower()
-    return (
-        "failed to authenticate" in text
-        or "authentication_error" in text
-        or "oauth token has expired" in text
-        or "invalid api key" in text
-        or "unauthorized" in text
-    )
-
-
 def _cmd_chat(args: argparse.Namespace) -> int:
     """Run one chat query against the runtime agent."""
     hits: list[dict[str, Any]] = []
     context_docs: list[dict[str, Any]] = []
-    prompt = _build_chat_prompt(args.question, hits, context_docs)
+    prompt = build_chat_prompt(args.question, hits, context_docs)
     agent = AcretaAgent(
         skills=["acreta"],
     )
-    response, session_id = agent.run_sync(prompt, cwd=str(Path.cwd()))
-    if _looks_like_auth_error(response):
+    response, session_id = agent.chat(prompt, cwd=str(Path.cwd()))
+    if looks_like_auth_error(response):
         _emit(response, file=sys.stderr)
         return 1
     if args.json:
@@ -537,11 +476,6 @@ def build_parser() -> argparse.ArgumentParser:
     sync.set_defaults(func=_cmd_sync)
 
     maintain = sub.add_parser("maintain", help="Run cold-path maintenance")
-    maintain.add_argument("--window", default="30d")
-    maintain.add_argument("--since")
-    maintain.add_argument("--until")
-    maintain.add_argument("--steps", help="Comma-separated maintenance steps")
-    maintain.add_argument("--agent", help="Comma-separated agent filter")
     maintain.add_argument("--force", action="store_true")
     maintain.add_argument("--dry-run", action="store_true")
     maintain.set_defaults(func=_cmd_maintain)

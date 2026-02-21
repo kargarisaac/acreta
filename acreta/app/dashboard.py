@@ -240,7 +240,7 @@ def _list_memory_files_dashboard() -> list[Path]:
     for mtype in MemoryType:
         folder = config.memory_dir / memory_folder(mtype)
         if folder.exists():
-            paths.extend(sorted(folder.glob("*.md")))
+            paths.extend(sorted(folder.rglob("*.md")))
     return paths
 
 
@@ -511,6 +511,7 @@ def _build_memory_graph_payload(
         truncated = True
     if truncated:
         warnings.append("Result truncated to requested node/edge limits.")
+
 
 def _memory_graph_query(payload: dict[str, Any]) -> dict[str, Any]:
     """Execute memory graph query with filters and return bounded payload."""

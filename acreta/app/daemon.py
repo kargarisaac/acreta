@@ -13,11 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
-from acreta.app.arg_utils import (
-    parse_agent_filter,
-    parse_csv,
-    parse_duration_to_seconds,
-)
+from acreta.app.arg_utils import parse_duration_to_seconds
 from acreta.config.settings import get_config
 
 
@@ -248,57 +244,6 @@ def resolve_window_bounds(
     return until - timedelta(seconds=seconds), until
 
 
-def maintain_default_steps() -> list[str]:
-    """Return default maintain step order."""
-    return ["consolidate", "decay", "report"]
-
-
-def resolve_maintain_steps(
-    raw_steps: str | None, parse_csv: Callable[[str | None], list[str]]
-) -> list[str]:
-    """Filter requested maintain steps while preserving canonical order."""
-    default_steps = maintain_default_steps()
-    if not raw_steps:
-        return default_steps
-    requested = parse_csv(raw_steps)
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for step in default_steps:
-        if step in requested and step not in seen:
-            ordered.append(step)
-            seen.add(step)
-    return ordered
-
-
-def _run_maintain_step(
-    step: str,
-    *,
-    window_start: datetime | None,
-    window_end: datetime,
-    agent_filter: list[str] | None,
-    force: bool,
-    dry_run: bool,
-) -> dict | None:
-    """Execute one maintain step and return optional structured output.
-
-    consolidate and decay are stubs pending agentic rewrite (specs/010).
-    """
-    from acreta.memory.extract_pipeline import build_extract_report
-
-    if step == "consolidate":
-        return None  # stub — agentic rewrite pending
-    if step == "decay":
-        return None  # stub — agentic rewrite pending
-    if step == "report":
-        return build_extract_report(
-            window_start=window_start,
-            window_end=window_end,
-            agent_types=agent_filter,
-        )
-    _ = (force, dry_run)
-    return None
-
-
 def run_sync_once(
     *,
     run_id: str | None,
@@ -428,7 +373,7 @@ def run_sync_once(
                         if not session_path:
                             doc = fetch_session_doc(rid) or {}
                             session_path = str(doc.get("session_path") or "").strip()
-                        result = lead_agent.run(Path(session_path))
+                        result = lead_agent.sync(Path(session_path))
                 except (
                     Exception
                 ) as exc:  # pragma: no cover - defensive guard for runtime stability.
@@ -493,96 +438,64 @@ def run_sync_once(
 
 def run_maintain_once(
     *,
-    window: str | None,
-    since_raw: str | None,
-    until_raw: str | None,
-    steps_raw: str | None,
-    agent_raw: str | None,
     force: bool,
     dry_run: bool,
-    parse_duration_to_seconds: Callable[[str], int],
-    parse_csv: Callable[[str | None], list[str]],
-    parse_agent_filter: Callable[[str | None], list[str] | None],
 ) -> tuple[int, dict]:
     """Run one maintain cycle with lock handling and service run record."""
+    from acreta.runtime.agent import AcretaAgent
     from acreta.sessions.catalog import record_service_run
 
-    window_start, window_end = resolve_window_bounds(
-        window=window,
-        since_raw=since_raw,
-        until_raw=until_raw,
-        parse_duration_to_seconds=parse_duration_to_seconds,
-    )
-    steps = resolve_maintain_steps(steps_raw, parse_csv)
     started = datetime.now(timezone.utc).isoformat()
 
-    writer = None
-    if not dry_run:
-        writer = ServiceLock(lock_path(WRITER_LOCK_NAME), stale_seconds=60)
-        try:
-            writer.acquire("maintain", "acreta maintain")
-        except LockBusyError as exc:
-            record_service_run(
-                job_type="maintain",
-                status="lock_busy",
-                started_at=started,
-                completed_at=datetime.now(timezone.utc).isoformat(),
-                trigger="manual",
-                details={"error": str(exc)},
-            )
-            return EXIT_LOCK_BUSY, {"error": str(exc)}
-
-    completed: list[str] = []
-    failed: list[str] = []
-    try:
-        for step in steps:
-            if dry_run:
-                completed.append(step)
-                continue
-            try:
-                _run_maintain_step(
-                    step,
-                    window_start=window_start,
-                    window_end=window_end,
-                    agent_filter=parse_agent_filter(agent_raw),
-                    force=force,
-                    dry_run=dry_run,
-                )
-                completed.append(step)
-            except Exception:
-                failed.append(step)
-
-        partial = len(failed) > 0
+    if dry_run:
         record_service_run(
             job_type="maintain",
-            status="partial" if partial else "completed",
+            status="completed",
             started_at=started,
             completed_at=datetime.now(timezone.utc).isoformat(),
             trigger="manual",
-            details={
-                "window_start": window_start.isoformat() if window_start else None,
-                "window_end": window_end.isoformat() if window_end else None,
-                "steps_requested": steps,
-                "steps_completed": completed,
-                "steps_failed": failed,
-                "dry_run": dry_run,
-            },
+            details={"dry_run": True},
         )
-        data = {
-            "window": {
-                "start": window_start.isoformat() if window_start else None,
-                "end": window_end.isoformat() if window_end else None,
-            },
-            "steps_requested": steps,
-            "steps_completed": completed,
-            "steps_failed": failed,
-            "partial": partial,
-            "dry_run": dry_run,
-        }
-        return (EXIT_PARTIAL if partial else EXIT_OK), data
+        return EXIT_OK, {"dry_run": True}
+
+    writer = ServiceLock(lock_path(WRITER_LOCK_NAME), stale_seconds=60)
+    try:
+        writer.acquire("maintain", "acreta maintain")
+    except LockBusyError as exc:
+        record_service_run(
+            job_type="maintain",
+            status="lock_busy",
+            started_at=started,
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            trigger="manual",
+            details={"error": str(exc)},
+        )
+        return EXIT_LOCK_BUSY, {"error": str(exc)}
+
+    try:
+        agent = AcretaAgent(skills=["acreta"], default_cwd=str(Path.cwd()))
+        result = agent.maintain()
+        record_service_run(
+            job_type="maintain",
+            status="completed",
+            started_at=started,
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            trigger="manual",
+            details=result,
+        )
+        return EXIT_OK, result
+    except Exception as exc:
+        record_service_run(
+            job_type="maintain",
+            status="failed",
+            started_at=started,
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            trigger="manual",
+            details={"error": str(exc)},
+        )
+        return EXIT_FATAL, {"error": str(exc)}
     finally:
-        if writer:
-            writer.release()
+        writer.release()
 
 
 def run_daemon_once() -> dict:
@@ -607,16 +520,8 @@ def run_daemon_once() -> dict:
         window_end=window_end,
     )
     maintain_code, maintain_data = run_maintain_once(
-        window="30d",
-        since_raw=None,
-        until_raw=None,
-        steps_raw=None,
-        agent_raw=None,
         force=False,
         dry_run=False,
-        parse_duration_to_seconds=parse_duration_to_seconds,
-        parse_csv=parse_csv,
-        parse_agent_filter=parse_agent_filter,
     )
     return {
         "sync_code": sync_code,
@@ -643,8 +548,6 @@ def run_daemon_forever(poll_seconds: int | None = None) -> None:
 
 
 if __name__ == "__main__":
-    steps = resolve_maintain_steps("decay,report,report", parse_csv)
-    assert steps == ["decay", "report"], steps
     since, until = resolve_window_bounds(
         window="1d",
         since_raw=None,
@@ -653,3 +556,4 @@ if __name__ == "__main__":
     )
     assert until is not None
     assert since is None or since <= until
+    assert callable(run_maintain_once)
