@@ -130,9 +130,18 @@ All metadata lives in frontmatter — no sidecars.
 
 Memory reset is explicit and destructive.
 
-- manual reset: `acreta memory reset --scope project|global|both --yes`
-- reset deletes `memory/`, `meta/`, and `index/` under selected root(s)
-- reset recreates canonical empty V2 folders immediately
+- `acreta memory reset --scope project|global|both --yes`
+- Deletes `memory/`, `workspace/`, and `index/` under selected root(s), then recreates canonical folders.
+- `--scope project`: resets `<repo>/.acreta/` only.
+- `--scope global`: resets `~/.acreta/` only (includes sessions DB).
+- `--scope both` (default): resets both.
+- Sessions DB lives in global `index/`, so `--scope project` alone does not reset sessions.
+
+Fresh start:
+```bash
+acreta memory reset --yes        # wipe everything
+acreta sync --max-sessions 5     # re-sync newest conversations
+```
 
 ## Docs map
 

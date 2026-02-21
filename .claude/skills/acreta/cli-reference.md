@@ -105,8 +105,18 @@ acreta memory reset --scope project|global|both --yes
 ```
 
 Notes:
-- `memory reset` is destructive.
-- It deletes `memory/`, `meta/`, and `index/` under selected roots, then recreates canonical folders.
+- `memory reset` is destructive and irreversible.
+- It deletes `memory/`, `workspace/`, and `index/` under selected root(s), then recreates canonical folders.
+- `--scope project`: resets `<repo>/.acreta/` only.
+- `--scope global`: resets `~/.acreta/` only (includes sessions DB at `~/.acreta/index/sessions.sqlite3`).
+- `--scope both` (default): resets both project and global roots.
+- Sessions DB lives in global `index/`, so `--scope project` alone does **not** reset the session queue. Use `--scope global` or `--scope both` to fully reset sessions.
+
+Fresh start workflow:
+```bash
+acreta memory reset --yes              # wipe everything (both scopes)
+acreta sync --max-sessions 5           # re-sync newest 5 conversations
+```
 
 ### `acreta chat`
 
