@@ -22,7 +22,16 @@ def test_help_lists_minimal_commands() -> None:
         parser.parse_args(["--help"])
     assert exc.value.code == 0
     text = out.getvalue()
-    for command in ("connect", "sync", "maintain", "daemon", "dashboard", "memory", "chat", "status"):
+    for command in (
+        "connect",
+        "sync",
+        "maintain",
+        "daemon",
+        "dashboard",
+        "memory",
+        "chat",
+        "status",
+    ):
         assert command in text
     for removed in ("readiness", "admin", "sessions", "config"):
         assert removed not in text
@@ -30,7 +39,9 @@ def test_help_lists_minimal_commands() -> None:
 
 def test_sync_parser_accepts_canonical_flags() -> None:
     parser = cli.build_parser()
-    args = parser.parse_args(["sync", "--run-id", "run-1", "--agent", "claude,codex", "--window", "7d"])
+    args = parser.parse_args(
+        ["sync", "--run-id", "run-1", "--agent", "claude,codex", "--window", "7d"]
+    )
     assert isinstance(args, argparse.Namespace)
     assert args.command == "sync"
     assert args.run_id == "run-1"
@@ -60,7 +71,9 @@ def test_status_json_output_shape() -> None:
     assert "latest_maintain" in payload
 
 
-def test_chat_uses_context_docs_when_memory_signal_is_thin(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chat_uses_context_docs_when_memory_signal_is_thin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(cli, "search_memory", lambda *_args, **_kwargs: [])
 
     captured: dict[str, str] = {}
@@ -84,14 +97,14 @@ def test_chat_uses_context_docs_when_memory_signal_is_thin(monkeypatch: pytest.M
     assert "dynamic fan-out" in captured["prompt"]
 
 
-def test_memory_reset_recreates_project_and_global_roots(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_memory_reset_recreates_project_and_global_roots(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     project_root = tmp_path / "project-data"
     global_root = tmp_path / "global-data"
     for root in (project_root, global_root):
         (root / "memory" / "learnings").mkdir(parents=True, exist_ok=True)
         (root / "memory" / "learnings" / "seed.md").write_text("seed", encoding="utf-8")
-        (root / "meta" / "state").mkdir(parents=True, exist_ok=True)
-        (root / "meta" / "state" / "old.json").write_text("{}", encoding="utf-8")
         (root / "index").mkdir(parents=True, exist_ok=True)
         (root / "index" / "fts.sqlite3").write_text("", encoding="utf-8")
 
@@ -110,7 +123,9 @@ def test_memory_reset_recreates_project_and_global_roots(tmp_path, monkeypatch: 
         ),
     )
 
-    code, payload = run_cli_json(["memory", "reset", "--scope", "both", "--yes", "--json"])
+    code, payload = run_cli_json(
+        ["memory", "reset", "--scope", "both", "--yes", "--json"]
+    )
     assert code == 0
     assert len(payload["reset"]) == 2
     assert (project_root / "memory" / "learnings").exists()

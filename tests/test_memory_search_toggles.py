@@ -5,8 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from acreta.app import cli
-from acreta.memory.memory_record import Learning, PrimitiveType
-from acreta.memory.memory_repo import MemoryRepository
+from acreta.memory.memory_record import MemoryRecord, MemoryType
 from tests.helpers import make_config
 
 
@@ -19,20 +18,24 @@ def test_disabled_backends_never_execute(monkeypatch, tmp_path) -> None:
         search_enable_vectors=False,
         search_enable_graph=False,
     )
-    store = MemoryRepository(tmp_path / "memory", tmp_path / "meta")
-    store.write(
-        Learning(
-            id=store.generate_id(PrimitiveType.learning),
-            title="Queue lifecycle",
-            body="Keep enqueue claim heartbeat complete fail lifecycle consistent.",
-            primitive=PrimitiveType.learning,
-            projects=["acreta"],
-            tags=["queue"],
-        )
+    # Write a memory file directly
+    learnings_dir = tmp_path / "memory" / "learnings"
+    learnings_dir.mkdir(parents=True, exist_ok=True)
+    record = MemoryRecord(
+        id="queue-lifecycle",
+        primitive=MemoryType.learning,
+        kind="insight",
+        title="Queue lifecycle",
+        body="Keep enqueue claim heartbeat complete fail lifecycle consistent.",
+        confidence=0.8,
+        tags=["queue"],
+    )
+    (learnings_dir / "20260220-queue-lifecycle.md").write_text(
+        record.to_markdown(), encoding="utf-8"
     )
 
     monkeypatch.setattr(cli, "get_config", lambda: config)
 
     hits = cli.search_memory("queue lifecycle", limit=5)
     assert len(hits) == 1
-    assert hits[0].title == "Queue lifecycle"
+    assert hits[0]["title"] == "Queue lifecycle"

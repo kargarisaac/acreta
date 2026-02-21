@@ -48,16 +48,15 @@ General coding simplification source of truth is [docs/simple-coding-rules.md](d
 - Project-first memory root: `<repo>/.acreta/`
 - Global fallback memory root: `~/.acreta/`
 - Primitive folders: `memory/decisions`, `memory/learnings`, `memory/summaries`
-- Sidecars: `meta/state`, `meta/evidence`
 - Trace archive: `meta/traces/sessions`
-- Run workspace: `workspace/<run_mode>-<YYYYMMDD-HHMMSS>-<shortid>/`
+- Run workspace: `workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/`
 - Optional indexes: `index/fts.sqlite3`, `index/graph.sqlite3`, `index/vectors.lance/`
 
 ## Conventions
 
 - Python 3.12, no heavy framework
 - Filesystem is canonical memory store
-- Lean frontmatter in memory files; operational metadata in sidecars
+- Lean frontmatter in memory files
 - Graph links are explicit-first via `related` fields and ID/slug references (no wikilink dependency)
 - Default search mode is `files`; FTS/vector/graph are toggleable
 - `.acreta/` is gitignored by default
@@ -121,10 +120,10 @@ If a future design assumes “Claude cannot do X”, verify against current docs
 
 ### CRUD policy
 
-- `create`: extract -> retrieve similar -> dedupe check -> write primitive file + sidecars.
+- `create`: extract -> retrieve similar -> dedupe check -> write primitive file.
 - `read`: retrieve with current mode/toggles, project-first then global fallback.
-- `update`: extract delta -> retrieve neighbors -> apply merge/update policy -> bump sidecars.
-- `delete`: soft-delete first (status/tombstone + archive path), hard-delete only via explicit command/policy.
+- `update`: extract delta -> retrieve neighbors -> apply merge/update policy -> update primitive file.
+- `delete`: soft-delete first (tombstone + archive path), hard-delete only via explicit command/policy.
 
 ### Lead agent responsibilities
 

@@ -66,17 +66,29 @@ async def _fake_run_sdk_once(
     summary_path = Path(artifacts["summary"])
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(
-        json.dumps({"title": "Run summary", "summary": "Summary body"}, ensure_ascii=True, indent=2) + "\n",
+        json.dumps(
+            {"title": "Run summary", "summary": "Summary body"},
+            ensure_ascii=True,
+            indent=2,
+        )
+        + "\n",
         encoding="utf-8",
     )
 
     summary_memory_path = memory_root / "summaries" / "summary--s202602200001.md"
     summary_memory_path.parent.mkdir(parents=True, exist_ok=True)
-    summary_memory_path.write_text("---\nid: s202602200001\ntitle: Summary\n---\nSummary body\n", encoding="utf-8")
+    summary_memory_path.write_text(
+        "---\nid: s202602200001\ntitle: Summary\n---\nSummary body\n", encoding="utf-8"
+    )
 
     Path(artifacts["subagents_log"]).write_text(
         json.dumps(
-            {"candidate_id": 0, "action_hint": "add", "matched_file": "", "evidence": "no strong match"},
+            {
+                "candidate_id": 0,
+                "action_hint": "add",
+                "matched_file": "",
+                "evidence": "no strong match",
+            },
             ensure_ascii=True,
         )
         + "\n",
@@ -86,13 +98,22 @@ async def _fake_run_sdk_once(
     report = {
         "run_id": "run-1",
         "todos": [],
-        "actions": [{"candidate_id": 0, "action": "add", "matched_file": "", "evidence": "no strong match"}],
+        "actions": [
+            {
+                "candidate_id": 0,
+                "action": "add",
+                "matched_file": "",
+                "evidence": "no strong match",
+            }
+        ],
         "counts": {"add": 1, "update": 0, "no_op": 0},
         "written_memory_paths": [str(summary_memory_path)],
         "summary_path": str(summary_memory_path),
         "trace_path": "/tmp/trace.jsonl",
     }
-    Path(artifacts["memory_actions"]).write_text(json.dumps(report, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+    Path(artifacts["memory_actions"]).write_text(
+        json.dumps(report, ensure_ascii=True, indent=2) + "\n", encoding="utf-8"
+    )
     return "ok", "session-1"
 
 
@@ -102,10 +123,9 @@ def test_memory_write_run_contract_creates_workspace_folder(tmp_path) -> None:
 
     agent = AcretaAgent(default_cwd=str(tmp_path))
     agent._run_sdk_once = _fake_run_sdk_once.__get__(agent, AcretaAgent)
-    result = agent.run(trace_path, run_mode="sync")
+    result = agent.run(trace_path)
 
     assert result["trace_path"] == str(trace_path.resolve())
-    assert result["run_mode"] == "sync"
     assert Path(result["run_folder"]).exists()
     assert Path(result["artifacts"]["extract"]).name == "extract.json"
     assert Path(result["summary_path"]).exists()
@@ -114,7 +134,7 @@ def test_memory_write_run_contract_creates_workspace_folder(tmp_path) -> None:
 def test_memory_write_run_contract_fails_fast_on_missing_trace(tmp_path) -> None:
     agent = AcretaAgent(default_cwd=str(tmp_path))
     with pytest.raises(FileNotFoundError):
-        agent.run(tmp_path / "missing.jsonl", run_mode="sync")
+        agent.run(tmp_path / "missing.jsonl")
 
 
 def test_memory_write_prompt_uses_trace_path_not_trace_content(tmp_path) -> None:
@@ -137,7 +157,11 @@ def test_memory_write_prompt_uses_trace_path_not_trace_content(tmp_path) -> None
         memory_root=tmp_path / "memory",
         run_folder=run_folder,
         artifact_paths=artifact_paths,
-        metadata={"run_id": "run-1", "trace_path": str(trace_path), "repo_name": "acreta", "run_mode": "sync"},
+        metadata={
+            "run_id": "run-1",
+            "trace_path": str(trace_path),
+            "repo_name": "acreta",
+        },
     )
 
     assert str(trace_path.resolve()) in prompt
@@ -159,7 +183,9 @@ def test_pretool_write_hook_enforces_allowed_roots(tmp_path) -> None:
     }
     allowed_result = asyncio.run(callback(allowed_payload, None, None))
     assert allowed_result["hookSpecificOutput"]["permissionDecision"] == "allow"
-    assert allowed_result["hookSpecificOutput"]["updatedInput"]["file_path"] == str(allowed_target.resolve())
+    assert allowed_result["hookSpecificOutput"]["updatedInput"]["file_path"] == str(
+        allowed_target.resolve()
+    )
 
     denied_payload = {
         "tool_name": "Write",
@@ -167,4 +193,7 @@ def test_pretool_write_hook_enforces_allowed_roots(tmp_path) -> None:
     }
     denied_result = asyncio.run(callback(denied_payload, None, None))
     assert denied_result["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert "write_outside_allowed_roots" in denied_result["hookSpecificOutput"]["permissionDecisionReason"]
+    assert (
+        "write_outside_allowed_roots"
+        in denied_result["hookSpecificOutput"]["permissionDecisionReason"]
+    )

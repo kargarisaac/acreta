@@ -1,9 +1,13 @@
-"""test daemon hot cold paths."""
+"""Test daemon sync and maintain paths."""
 
 from __future__ import annotations
 
 from acreta.app import daemon
-from acreta.app.arg_utils import parse_agent_filter, parse_csv, parse_duration_to_seconds
+from acreta.app.arg_utils import (
+    parse_agent_filter,
+    parse_csv,
+    parse_duration_to_seconds,
+)
 from acreta.config.settings import reload_config
 from acreta.sessions import catalog
 
@@ -12,20 +16,22 @@ def _setup(tmp_path, monkeypatch, *, enable_vectors: bool = False) -> None:
     monkeypatch.setenv("ACRETA_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("ACRETA_MEMORY_DIR", str(tmp_path / "memory"))
     monkeypatch.setenv("ACRETA_INDEX_DIR", str(tmp_path / "index"))
-    monkeypatch.setenv("ACRETA_SESSIONS_DB", str(tmp_path / "index" / "sessions.sqlite3"))
+    monkeypatch.setenv(
+        "ACRETA_SESSIONS_DB", str(tmp_path / "index" / "sessions.sqlite3")
+    )
     monkeypatch.setenv("ACRETA_SEARCH_ENABLE_GRAPH", "1")
     monkeypatch.setenv("ACRETA_SEARCH_ENABLE_VECTORS", "1" if enable_vectors else "0")
     reload_config()
     catalog.init_sessions_db()
 
 
-def test_sync_hot_path_does_not_run_vector_rebuild(monkeypatch, tmp_path) -> None:
+def test_sync_does_not_run_vector_rebuild(monkeypatch, tmp_path) -> None:
     _setup(tmp_path, monkeypatch, enable_vectors=True)
-    session_path = tmp_path / "sessions" / "run-hot-1.jsonl"
+    session_path = tmp_path / "sessions" / "run-sync-1.jsonl"
     session_path.parent.mkdir(parents=True, exist_ok=True)
     session_path.write_text('{"role":"assistant","content":"ok"}\n', encoding="utf-8")
     catalog.index_session_for_fts(
-        run_id="run-hot-1",
+        run_id="run-sync-1",
         agent_type="codex",
         content="session content",
         session_path=str(session_path),
@@ -39,7 +45,7 @@ def test_sync_hot_path_does_not_run_vector_rebuild(monkeypatch, tmp_path) -> Non
     )
 
     code, summary = daemon.run_sync_once(
-        run_id="run-hot-1",
+        run_id="run-sync-1",
         agent_filter=None,
         no_extract=False,
         force=False,
@@ -59,7 +65,7 @@ def test_sync_hot_path_does_not_run_vector_rebuild(monkeypatch, tmp_path) -> Non
     assert "vectors_error" not in latest["details"]
 
 
-def test_maintain_cold_path_runs_requested_steps(monkeypatch, tmp_path) -> None:
+def test_maintain_runs_requested_steps(monkeypatch, tmp_path) -> None:
     _setup(tmp_path, monkeypatch, enable_vectors=True)
     calls: list[str] = []
 

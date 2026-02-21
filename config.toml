@@ -27,7 +27,7 @@ poll_interval_minutes = 5
 [agent]
 provider = "anthropic"
 model = "claude-haiku-4-5-20251001"
-timeout = 120
+timeout = 300
 persist_sessions_in_workspace = false
 
 [embeddings]
