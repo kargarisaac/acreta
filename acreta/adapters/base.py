@@ -67,13 +67,18 @@ class Adapter(Protocol):
         traces_dir: Path | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
+        known_run_ids: set[str] | None = None,
     ) -> list[SessionRecord]:
         """List normalized session summaries in the selected time window."""
 
-    def find_session_path(self, session_id: str, traces_dir: Path | None = None) -> Path | None:
+    def find_session_path(
+        self, session_id: str, traces_dir: Path | None = None
+    ) -> Path | None:
         """Resolve one session file path by ``session_id``."""
 
-    def read_session(self, session_path: Path, session_id: str | None = None) -> ViewerSession | None:
+    def read_session(
+        self, session_path: Path, session_id: str | None = None
+    ) -> ViewerSession | None:
         """Read one session file and return a normalized viewer payload."""
 
 
@@ -82,6 +87,8 @@ if __name__ == "__main__":
         session_id="demo",
         messages=[ViewerMessage(role="assistant", content="ok")],
     )
-    record = SessionRecord(run_id="demo", agent_type="codex", session_path="/tmp/demo.json")
+    record = SessionRecord(
+        run_id="demo", agent_type="codex", session_path="/tmp/demo.json"
+    )
     assert session.messages and session.messages[0].content == "ok"
     assert record.run_id == "demo"

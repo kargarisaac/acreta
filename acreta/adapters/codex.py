@@ -6,7 +6,12 @@ from datetime import datetime
 from pathlib import Path
 
 from acreta.adapters.base import SessionRecord, ViewerMessage, ViewerSession
-from acreta.adapters.common import count_non_empty_files, in_window, load_jsonl_dict_lines, parse_timestamp
+from acreta.adapters.common import (
+    count_non_empty_files,
+    in_window,
+    load_jsonl_dict_lines,
+    parse_timestamp,
+)
 
 
 def default_path() -> Path | None:
@@ -49,7 +54,9 @@ def find_session_path(session_id: str, traces_dir: Path | None = None) -> Path |
     return None
 
 
-def read_session(session_path: Path, session_id: str | None = None) -> ViewerSession | None:
+def read_session(
+    session_path: Path, session_id: str | None = None
+) -> ViewerSession | None:
     """Parse a Codex trace into normalized user/assistant/tool messages."""
     messages: list[ViewerMessage] = []
     tool_messages: dict[str, ViewerMessage] = {}
@@ -67,7 +74,9 @@ def read_session(session_path: Path, session_id: str | None = None) -> ViewerSes
             event_type = payload.get("type")
             if event_type == "token_count":
                 info = payload.get("info", {})
-                usage = info.get("last_token_usage", {}) if isinstance(info, dict) else {}
+                usage = (
+                    info.get("last_token_usage", {}) if isinstance(info, dict) else {}
+                )
                 total_input += int(usage.get("input_tokens", 0) or 0)
                 total_output += int(usage.get("output_tokens", 0) or 0)
                 total_output += int(usage.get("reasoning_output_tokens", 0) or 0)
@@ -75,7 +84,11 @@ def read_session(session_path: Path, session_id: str | None = None) -> ViewerSes
                 role = "user" if event_type == "user_message" else "assistant"
                 text = payload.get("message")
                 if isinstance(text, str) and text.strip():
-                    event_messages.append(ViewerMessage(role=role, content=text.strip(), timestamp=timestamp))
+                    event_messages.append(
+                        ViewerMessage(
+                            role=role, content=text.strip(), timestamp=timestamp
+                        )
+                    )
             continue
 
         if entry_type != "response_item":
@@ -87,12 +100,18 @@ def read_session(session_path: Path, session_id: str | None = None) -> ViewerSes
             role = payload.get("role")
             text = _extract_message_text(payload.get("content"))
             if role and text:
-                messages.append(ViewerMessage(role=str(role), content=text, timestamp=timestamp))
+                messages.append(
+                    ViewerMessage(role=str(role), content=text, timestamp=timestamp)
+                )
         elif payload_type in ("function_call", "custom_tool_call"):
             has_response_items = True
             tool_id = str(payload.get("call_id") or payload.get("id") or "")
             tool_name = str(payload.get("name") or "tool")
-            tool_input = payload.get("arguments") if payload_type == "function_call" else payload.get("input")
+            tool_input = (
+                payload.get("arguments")
+                if payload_type == "function_call"
+                else payload.get("input")
+            )
             tool_msg = ViewerMessage(
                 role="tool",
                 tool_name=tool_name,
@@ -131,6 +150,7 @@ def iter_sessions(
     traces_dir: Path | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
+    known_run_ids: set[str] | None = None,
 ) -> list[SessionRecord]:
     """Enumerate Codex sessions and build index summaries."""
     base = traces_dir or default_path()
@@ -139,6 +159,8 @@ def iter_sessions(
 
     records: list[SessionRecord] = []
     for path in base.rglob("*.jsonl"):
+        if known_run_ids and path.stem in known_run_ids:
+            continue
         entries = load_jsonl_dict_lines(path)
         if not entries:
             continue
@@ -153,7 +175,9 @@ def iter_sessions(
 
         for entry in entries:
             payload = entry.get("payload") or {}
-            ts = parse_timestamp(str(entry.get("timestamp") or payload.get("timestamp") or ""))
+            ts = parse_timestamp(
+                str(entry.get("timestamp") or payload.get("timestamp") or "")
+            )
             if ts:
                 if start_time is None or ts < start_time:
                     start_time = ts
@@ -175,7 +199,9 @@ def iter_sessions(
                     if isinstance(usage, dict):
                         total_tokens += int(usage.get("input_tokens", 0) or 0)
                         total_tokens += int(usage.get("output_tokens", 0) or 0)
-                        total_tokens += int(usage.get("reasoning_output_tokens", 0) or 0)
+                        total_tokens += int(
+                            usage.get("reasoning_output_tokens", 0) or 0
+                        )
 
             if entry.get("type") == "response_item" and isinstance(payload, dict):
                 ptype = payload.get("type")

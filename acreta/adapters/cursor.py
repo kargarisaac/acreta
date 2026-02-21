@@ -16,7 +16,9 @@ from acreta.adapters.common import in_window, parse_timestamp
 def default_path() -> Path | None:
     """Return platform-specific default Cursor storage path."""
     if sys.platform == "darwin":
-        return Path("~/Library/Application Support/Cursor/User/globalStorage/").expanduser()
+        return Path(
+            "~/Library/Application Support/Cursor/User/globalStorage/"
+        ).expanduser()
     if sys.platform.startswith("linux"):
         return Path("~/.config/Cursor/User/globalStorage/").expanduser()
     return Path("~/Library/Application Support/Cursor/User/globalStorage/").expanduser()
@@ -127,10 +129,17 @@ def _parse_messages(payload: Any) -> list[tuple[str, str, datetime | None]]:
     records = _extract_message_records(payload)
     messages: list[tuple[str, str, datetime | None]] = []
     for record in records:
-        role = _normalize_role(record.get("role") or record.get("author") or record.get("sender"))
+        role = _normalize_role(
+            record.get("role") or record.get("author") or record.get("sender")
+        )
         if "type" in record and isinstance(record.get("type"), int):
             role = "user" if record.get("type") == 1 else "assistant"
-        text = _extract_text(record.get("text") or record.get("content") or record.get("message") or record)
+        text = _extract_text(
+            record.get("text")
+            or record.get("content")
+            or record.get("message")
+            or record
+        )
         if not text.strip():
             continue
         ts = parse_timestamp(
@@ -207,7 +216,9 @@ def find_session_path(session_id: str, traces_dir: Path | None = None) -> Path |
     return None
 
 
-def read_session(session_path: Path, session_id: str | None = None) -> ViewerSession | None:
+def read_session(
+    session_path: Path, session_id: str | None = None
+) -> ViewerSession | None:
     """Read one Cursor session from SQLite and normalize it for viewing."""
     db_path = session_path if session_path.is_file() else session_path / "state.vscdb"
     if not db_path.exists() or not session_id:
@@ -258,6 +269,7 @@ def iter_sessions(
     traces_dir: Path | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
+    known_run_ids: set[str] | None = None,
 ) -> list[SessionRecord]:
     """Enumerate Cursor sessions and build compact session summaries."""
     root = traces_dir or default_path()
@@ -269,6 +281,8 @@ def iter_sessions(
         for key, raw_value in _cursor_rows(db_path):
             run_id = _extract_session_id(key)
             if not run_id:
+                continue
+            if known_run_ids and run_id in known_run_ids:
                 continue
             payload = _parse_json_value(raw_value)
             if not isinstance(payload, dict):
@@ -285,7 +299,9 @@ def iter_sessions(
                     summaries.append(cleaned[:140])
                 if len(summaries) >= 5:
                     break
-            message_count = len([1 for role, _, _ in messages if role in {"user", "assistant"}])
+            message_count = len(
+                [1 for role, _, _ in messages if role in {"user", "assistant"}]
+            )
             tool_calls = len([1 for role, _, _ in messages if role == "tool"])
             records.append(
                 SessionRecord(
