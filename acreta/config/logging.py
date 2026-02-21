@@ -125,6 +125,10 @@ def configure_logging(level: str | None = None) -> None:
         logging.getLogger(name).handlers = []
         logging.getLogger(name).propagate = True
 
+    # Silence noisy third-party loggers (they add their own stderr handlers)
+    for noisy in ("LiteLLM", "litellm", "httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
 
 configure_logging()
 
