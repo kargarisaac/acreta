@@ -7,7 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from acreta.adapters.base import SessionRecord, ViewerMessage, ViewerSession
-from acreta.adapters.common import count_non_empty_files, in_window, load_jsonl_dict_lines, parse_timestamp
+from acreta.adapters.common import (
+    count_non_empty_files,
+    in_window,
+    load_jsonl_dict_lines,
+    parse_timestamp,
+)
 
 
 def default_path() -> Path | None:
@@ -31,7 +36,9 @@ def find_session_path(session_id: str, traces_dir: Path | None = None) -> Path |
     return None
 
 
-def read_session(session_path: Path, session_id: str | None = None) -> ViewerSession | None:
+def read_session(
+    session_path: Path, session_id: str | None = None
+) -> ViewerSession | None:
     """Parse one Claude session JSONL file into normalized viewer messages."""
     messages: list[ViewerMessage] = []
     tool_results: dict[str, Any] = {}
@@ -82,8 +89,14 @@ def read_session(session_path: Path, session_id: str | None = None) -> ViewerSes
                     elif block.get("type") == "text":
                         text_parts.append(str(block.get("text") or ""))
                 content = "\n".join(text_parts)
-            if isinstance(content, str) and content.strip() and not content.startswith("<"):
-                messages.append(ViewerMessage(role="user", content=content, timestamp=timestamp))
+            if (
+                isinstance(content, str)
+                and content.strip()
+                and not content.startswith("<")
+            ):
+                messages.append(
+                    ViewerMessage(role="user", content=content, timestamp=timestamp)
+                )
 
         elif entry_type == "assistant":
             msg_data = entry.get("message", {})
@@ -140,6 +153,7 @@ def iter_sessions(
     traces_dir: Path | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
+    known_run_ids: set[str] | None = None,
 ) -> list[SessionRecord]:
     """Enumerate Claude sessions and summarize them for indexing."""
     base = traces_dir or default_path()
@@ -148,6 +162,8 @@ def iter_sessions(
 
     records: list[SessionRecord] = []
     for path in base.rglob("*.jsonl"):
+        if known_run_ids and path.stem in known_run_ids:
+            continue
         entries = load_jsonl_dict_lines(path)
         if not entries:
             continue
@@ -161,7 +177,11 @@ def iter_sessions(
         total_tokens = 0
 
         for entry in entries:
-            ts = parse_timestamp(str(entry.get("timestamp") or "")) if entry.get("timestamp") else None
+            ts = (
+                parse_timestamp(str(entry.get("timestamp") or ""))
+                if entry.get("timestamp")
+                else None
+            )
             if ts:
                 if started_at is None or ts < started_at:
                     started_at = ts

@@ -10,8 +10,8 @@ from acreta.sessions import catalog
 
 class _FakeAdapter:
     @staticmethod
-    def iter_sessions(traces_dir: Path, start=None, end=None):
-        _ = (traces_dir, start, end)
+    def iter_sessions(traces_dir: Path, start=None, end=None, known_run_ids=None):
+        _ = (traces_dir, start, end, known_run_ids)
         return [
             SimpleNamespace(
                 run_id="run-x",
@@ -37,8 +37,8 @@ class _FakeAdapter:
 
 class _FakeCursorAdapter(_FakeAdapter):
     @staticmethod
-    def iter_sessions(traces_dir: Path, start=None, end=None):
-        _ = (traces_dir, start, end)
+    def iter_sessions(traces_dir: Path, start=None, end=None, known_run_ids=None):
+        _ = (traces_dir, start, end, known_run_ids)
         return [
             SimpleNamespace(
                 run_id="run-cursor-1",
@@ -59,11 +59,21 @@ class _FakeCursorAdapter(_FakeAdapter):
 
 def test_index_new_sessions_uses_connected_paths(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ACRETA_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ACRETA_SESSIONS_DB", str(tmp_path / "index" / "sessions.sqlite3"))
+    monkeypatch.setenv(
+        "ACRETA_SESSIONS_DB", str(tmp_path / "index" / "sessions.sqlite3")
+    )
 
-    monkeypatch.setattr(catalog.adapter_registry, "get_connected_platform_paths", lambda _p: {"codex": Path("/tmp")})
-    monkeypatch.setattr(catalog.adapter_registry, "get_connected_agents", lambda _p: ["codex"])
-    monkeypatch.setattr(catalog.adapter_registry, "get_adapter", lambda _name: _FakeAdapter)
+    monkeypatch.setattr(
+        catalog.adapter_registry,
+        "get_connected_platform_paths",
+        lambda _p: {"codex": Path("/tmp")},
+    )
+    monkeypatch.setattr(
+        catalog.adapter_registry, "get_connected_agents", lambda _p: ["codex"]
+    )
+    monkeypatch.setattr(
+        catalog.adapter_registry, "get_adapter", lambda _name: _FakeAdapter
+    )
 
     out = catalog.index_new_sessions(return_details=True)
     assert len(out) == 1
@@ -72,11 +82,21 @@ def test_index_new_sessions_uses_connected_paths(monkeypatch, tmp_path: Path) ->
 
 def test_index_new_sessions_cursor_path_ingestion(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ACRETA_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ACRETA_SESSIONS_DB", str(tmp_path / "index" / "sessions.sqlite3"))
+    monkeypatch.setenv(
+        "ACRETA_SESSIONS_DB", str(tmp_path / "index" / "sessions.sqlite3")
+    )
 
-    monkeypatch.setattr(catalog.adapter_registry, "get_connected_platform_paths", lambda _p: {"cursor": Path("/tmp")})
-    monkeypatch.setattr(catalog.adapter_registry, "get_connected_agents", lambda _p: ["cursor"])
-    monkeypatch.setattr(catalog.adapter_registry, "get_adapter", lambda _name: _FakeCursorAdapter)
+    monkeypatch.setattr(
+        catalog.adapter_registry,
+        "get_connected_platform_paths",
+        lambda _p: {"cursor": Path("/tmp")},
+    )
+    monkeypatch.setattr(
+        catalog.adapter_registry, "get_connected_agents", lambda _p: ["cursor"]
+    )
+    monkeypatch.setattr(
+        catalog.adapter_registry, "get_adapter", lambda _name: _FakeCursorAdapter
+    )
 
     out = catalog.index_new_sessions(return_details=True)
     assert len(out) == 1

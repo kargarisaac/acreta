@@ -312,6 +312,7 @@ def run_sync_once(
                     run_id,
                     agent_type=session.get("agent_type") if session else None,
                     session_path=session.get("session_path") if session else None,
+                    start_time=session.get("start_time") if session else None,
                     trigger=trigger,
                     force=True,
                 )
@@ -335,6 +336,7 @@ def run_sync_once(
                         item.run_id,
                         agent_type=item.agent_type,
                         session_path=item.session_path,
+                        start_time=item.start_time,
                         trigger=trigger,
                     )
                     if queued:

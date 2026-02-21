@@ -95,7 +95,9 @@ def find_session_path(session_id: str, traces_dir: Path | None = None) -> Path |
     return None
 
 
-def _find_storage_root_for_session(session_path: Path, traces_dir: Path | None = None) -> Path | None:
+def _find_storage_root_for_session(
+    session_path: Path, traces_dir: Path | None = None
+) -> Path | None:
     """Find the storage root that owns a given OpenCode session file."""
     for root in _resolve_storage_roots(traces_dir):
         try:
@@ -106,7 +108,9 @@ def _find_storage_root_for_session(session_path: Path, traces_dir: Path | None =
     return None
 
 
-def read_session(session_path: Path, session_id: str | None = None) -> ViewerSession | None:
+def read_session(
+    session_path: Path, session_id: str | None = None
+) -> ViewerSession | None:
     """Read one OpenCode session and its related message/part files."""
     payload = _parse_json_file(session_path)
     if not payload:
@@ -124,11 +128,21 @@ def read_session(session_path: Path, session_id: str | None = None) -> ViewerSes
         if session_path.parent.name == "session":
             storage_root = session_path.parent.parent
         else:
-            return ViewerSession(session_id=resolved_id, cwd=cwd, messages=messages, meta={"version": version})
+            return ViewerSession(
+                session_id=resolved_id,
+                cwd=cwd,
+                messages=messages,
+                meta={"version": version},
+            )
 
     messages_dir = storage_root / "message" / resolved_id
     if not messages_dir.exists():
-        return ViewerSession(session_id=resolved_id, cwd=cwd, messages=messages, meta={"version": version})
+        return ViewerSession(
+            session_id=resolved_id,
+            cwd=cwd,
+            messages=messages,
+            meta={"version": version},
+        )
 
     message_entries: list[tuple[int, dict[str, Any]]] = []
     for msg_path in messages_dir.glob("*.json"):
@@ -170,7 +184,9 @@ def read_session(session_path: Path, session_id: str | None = None) -> ViewerSes
                             tool_name=tool_name,
                             tool_input=state.get("input"),
                             tool_output=state.get("output"),
-                            timestamp=_parse_timestamp_ms((state.get("time") or {}).get("start")),
+                            timestamp=_parse_timestamp_ms(
+                                (state.get("time") or {}).get("start")
+                            ),
                         )
                     )
 
@@ -198,6 +214,7 @@ def iter_sessions(
     traces_dir: Path | None = None,
     start: datetime | None = None,
     end: datetime | None = None,
+    known_run_ids: set[str] | None = None,
 ) -> list[SessionRecord]:
     """Enumerate OpenCode sessions and return summarized index records."""
     records: list[SessionRecord] = []
@@ -210,6 +227,8 @@ def iter_sessions(
             if not payload:
                 continue
             run_id = str(payload.get("id") or session_path.stem)
+            if known_run_ids and run_id in known_run_ids:
+                continue
             start_ms = payload.get("createdAt") or payload.get("created_at")
             start_dt = parse_timestamp(start_ms)
             if not in_window(start_dt, start, end):
@@ -225,7 +244,9 @@ def iter_sessions(
                 if len(summaries) >= 5:
                     break
 
-            message_count = len([m for m in session.messages if m.role in {"user", "assistant"}])
+            message_count = len(
+                [m for m in session.messages if m.role in {"user", "assistant"}]
+            )
             tool_calls = len([m for m in session.messages if m.role == "tool"])
             records.append(
                 SessionRecord(
@@ -236,7 +257,8 @@ def iter_sessions(
                     repo_name=str(payload.get("directory") or "") or None,
                     message_count=message_count,
                     tool_call_count=tool_calls,
-                    total_tokens=session.total_input_tokens + session.total_output_tokens,
+                    total_tokens=session.total_input_tokens
+                    + session.total_output_tokens,
                     summaries=summaries,
                 )
             )

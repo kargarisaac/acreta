@@ -121,9 +121,15 @@ def init_sessions_db() -> None:
             )
             """
         )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_session_docs_run ON session_docs (run_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_session_docs_agent ON session_docs (agent_type)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_session_docs_time ON session_docs (start_time)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_docs_run ON session_docs (run_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_docs_agent ON session_docs (agent_type)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_docs_time ON session_docs (start_time)"
+        )
 
         conn.execute(
             """
@@ -172,6 +178,7 @@ def init_sessions_db() -> None:
                 job_type TEXT NOT NULL DEFAULT 'extract',
                 agent_type TEXT,
                 session_path TEXT,
+                start_time TEXT,
                 status TEXT NOT NULL,
                 attempts INTEGER DEFAULT 0,
                 max_attempts INTEGER DEFAULT 3,
@@ -187,8 +194,12 @@ def init_sessions_db() -> None:
             )
             """
         )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_session_jobs_status_available ON session_jobs (status, available_at)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_session_jobs_updated ON session_jobs (updated_at)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_jobs_status_available ON session_jobs (status, available_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_jobs_updated ON session_jobs (updated_at)"
+        )
         columns = {
             str(row["name"]): str(row["type"])
             for row in conn.execute("PRAGMA table_info(session_jobs)").fetchall()
@@ -197,6 +208,7 @@ def init_sessions_db() -> None:
             "job_type": "TEXT NOT NULL DEFAULT 'extract'",
             "agent_type": "TEXT",
             "session_path": "TEXT",
+            "start_time": "TEXT",
             "status": "TEXT NOT NULL DEFAULT 'pending'",
             "attempts": "INTEGER DEFAULT 0",
             "max_attempts": "INTEGER DEFAULT 3",
@@ -223,9 +235,18 @@ def init_sessions_db() -> None:
             "UPDATE session_jobs SET status = ? WHERE status IS NULL OR status = ''",
             (JOB_STATUS_PENDING,),
         )
-        conn.execute("UPDATE session_jobs SET available_at = ? WHERE available_at IS NULL OR available_at = ''", (now,))
-        conn.execute("UPDATE session_jobs SET created_at = ? WHERE created_at IS NULL OR created_at = ''", (now,))
-        conn.execute("UPDATE session_jobs SET updated_at = ? WHERE updated_at IS NULL OR updated_at = ''", (now,))
+        conn.execute(
+            "UPDATE session_jobs SET available_at = ? WHERE available_at IS NULL OR available_at = ''",
+            (now,),
+        )
+        conn.execute(
+            "UPDATE session_jobs SET created_at = ? WHERE created_at IS NULL OR created_at = ''",
+            (now,),
+        )
+        conn.execute(
+            "UPDATE session_jobs SET updated_at = ? WHERE updated_at IS NULL OR updated_at = ''",
+            (now,),
+        )
         conn.execute(
             "UPDATE session_jobs SET status = ? WHERE status = 'queued'",
             (JOB_STATUS_PENDING,),
@@ -248,8 +269,12 @@ def init_sessions_db() -> None:
             )
             """
         )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_service_runs_job ON service_runs (job_type)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_service_runs_started ON service_runs (started_at)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_service_runs_job ON service_runs (job_type)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_service_runs_started ON service_runs (started_at)"
+        )
         conn.commit()
     _DB_INITIALIZED_PATH = _db_path()
 
@@ -330,7 +355,9 @@ def fetch_session_doc(run_id: str) -> dict[str, Any] | None:
         return None
     _ensure_sessions_db_initialized()
     with _connect() as conn:
-        row = conn.execute("SELECT * FROM session_docs WHERE run_id = ?", (run_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM session_docs WHERE run_id = ?", (run_id,)
+        ).fetchone()
     return row if isinstance(row, dict) else None
 
 
@@ -361,7 +388,9 @@ def update_session_extract_fields(
 
     params.append(run_id)
     with _connect() as conn:
-        cursor = conn.execute(f"UPDATE session_docs SET {', '.join(updates)} WHERE run_id = ?", params)
+        cursor = conn.execute(
+            f"UPDATE session_docs SET {', '.join(updates)} WHERE run_id = ?", params
+        )
         conn.commit()
     return int(cursor.rowcount or 0) > 0
 
@@ -456,8 +485,12 @@ def index_new_sessions(
     _ensure_sessions_db_initialized()
     config = get_config()
 
-    connected_paths = adapter_registry.get_connected_platform_paths(config.platforms_path)
-    selected_agents = agents or adapter_registry.get_connected_agents(config.platforms_path)
+    connected_paths = adapter_registry.get_connected_platform_paths(
+        config.platforms_path
+    )
+    selected_agents = agents or adapter_registry.get_connected_agents(
+        config.platforms_path
+    )
     indexed_run_ids = get_indexed_run_ids()
 
     new_sessions: list[IndexedSession] = []
@@ -469,9 +502,16 @@ def index_new_sessions(
             continue
 
         try:
-            sessions = adapter.iter_sessions(traces_dir=traces_dir, start=start, end=end)
+            sessions = adapter.iter_sessions(
+                traces_dir=traces_dir,
+                start=start,
+                end=end,
+                known_run_ids=indexed_run_ids,
+            )
         except Exception as exc:
-            logger.warning("session discovery failed | agent={} error={}", agent_name, str(exc))
+            logger.warning(
+                "session discovery failed | agent={} error={}", agent_name, str(exc)
+            )
             continue
 
         for session in sessions:
@@ -522,6 +562,7 @@ def enqueue_session_job(
     job_type: str = JOB_TYPE_EXTRACT,
     agent_type: str | None = None,
     session_path: str | None = None,
+    start_time: str | None = None,
     trigger: str | None = None,
     force: bool = False,
     max_attempts: int = 3,
@@ -538,21 +579,28 @@ def enqueue_session_job(
             (run_id, job_type),
         ).fetchone()
 
-        if existing and not force and str(existing.get("status") or "") in SESSION_JOB_ACTIVE.union({JOB_STATUS_DONE}):
+        if (
+            existing
+            and not force
+            and str(existing.get("status") or "")
+            in SESSION_JOB_ACTIVE.union({JOB_STATUS_DONE})
+        ):
             return False
 
         if existing:
             conn.execute(
                 """
                 UPDATE session_jobs
-                SET agent_type = ?, session_path = ?, status = ?, attempts = 0,
-                    trigger = ?, available_at = ?, claimed_at = NULL, completed_at = NULL,
-                    heartbeat_at = NULL, error = NULL, updated_at = ?, max_attempts = ?
+                SET agent_type = ?, session_path = ?, start_time = ?, status = ?,
+                    attempts = 0, trigger = ?, available_at = ?, claimed_at = NULL,
+                    completed_at = NULL, heartbeat_at = NULL, error = NULL,
+                    updated_at = ?, max_attempts = ?
                 WHERE run_id = ? AND job_type = ?
                 """,
                 (
                     agent_type,
                     session_path,
+                    start_time,
                     JOB_STATUS_PENDING,
                     trigger,
                     now,
@@ -566,16 +614,17 @@ def enqueue_session_job(
             conn.execute(
                 """
                 INSERT INTO session_jobs (
-                    run_id, job_type, agent_type, session_path, status, attempts, max_attempts,
-                    trigger, available_at, created_at, updated_at
+                    run_id, job_type, agent_type, session_path, start_time, status,
+                    attempts, max_attempts, trigger, available_at, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
                     job_type,
                     agent_type,
                     session_path,
+                    start_time,
                     JOB_STATUS_PENDING,
                     max(1, int(max_attempts)),
                     trigger,
@@ -600,7 +649,9 @@ def claim_session_jobs(
     limit = max(1, int(limit))
     now = _utc_now()
     now_iso = now.isoformat()
-    timeout_cutoff = (now - timedelta(seconds=max(30, int(timeout_seconds)))).isoformat()
+    timeout_cutoff = (
+        now - timedelta(seconds=max(30, int(timeout_seconds)))
+    ).isoformat()
 
     with _connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -618,7 +669,11 @@ def claim_session_jobs(
         for stale in stale_rows:
             attempts = int(stale.get("attempts") or 0)
             max_attempts = int(stale.get("max_attempts") or 3)
-            new_status = JOB_STATUS_DEAD_LETTER if attempts >= max_attempts else JOB_STATUS_PENDING
+            new_status = (
+                JOB_STATUS_DEAD_LETTER
+                if attempts >= max_attempts
+                else JOB_STATUS_PENDING
+            )
             conn.execute(
                 """
                 UPDATE session_jobs
@@ -639,8 +694,8 @@ def claim_session_jobs(
             f"""
             SELECT *
             FROM session_jobs
-            WHERE {' AND '.join(where_parts)}
-            ORDER BY available_at ASC, id ASC
+            WHERE {" AND ".join(where_parts)}
+            ORDER BY start_time DESC, available_at ASC, id ASC
             LIMIT ?
             """,
             [*params, limit],
@@ -733,7 +788,11 @@ def fail_session_job(
         max_attempts = int(row.get("max_attempts") or 3)
         exhausted = attempts >= max_attempts
         status = JOB_STATUS_DEAD_LETTER if exhausted else JOB_STATUS_FAILED
-        available_at = now if exhausted else now + timedelta(seconds=max(1, int(retry_backoff_seconds)))
+        available_at = (
+            now
+            if exhausted
+            else now + timedelta(seconds=max(1, int(retry_backoff_seconds)))
+        )
 
         cursor = conn.execute(
             """
@@ -742,7 +801,16 @@ def fail_session_job(
                 updated_at = ?, error = ?
             WHERE run_id = ? AND job_type = ?
             """,
-            (status, available_at.isoformat(), now_iso if exhausted else None, now_iso, now_iso, error, run_id, job_type),
+            (
+                status,
+                available_at.isoformat(),
+                now_iso if exhausted else None,
+                now_iso,
+                now_iso,
+                error,
+                run_id,
+                job_type,
+            ),
         )
         conn.commit()
     return int(cursor.rowcount or 0) > 0
@@ -789,8 +857,16 @@ def count_session_jobs_by_status() -> dict[str, int]:
         rows = conn.execute(
             "SELECT status, COUNT(1) AS total FROM session_jobs GROUP BY status"
         ).fetchall()
-    counts = {str(row.get("status") or "unknown"): int(row.get("total") or 0) for row in rows}
-    for status in (JOB_STATUS_PENDING, JOB_STATUS_RUNNING, JOB_STATUS_DONE, JOB_STATUS_FAILED, JOB_STATUS_DEAD_LETTER):
+    counts = {
+        str(row.get("status") or "unknown"): int(row.get("total") or 0) for row in rows
+    }
+    for status in (
+        JOB_STATUS_PENDING,
+        JOB_STATUS_RUNNING,
+        JOB_STATUS_DONE,
+        JOB_STATUS_FAILED,
+        JOB_STATUS_DEAD_LETTER,
+    ):
         counts.setdefault(status, 0)
     return counts
 
@@ -812,7 +888,14 @@ def record_service_run(
             INSERT INTO service_runs (job_type, status, started_at, completed_at, trigger, details_json)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (job_type, status, started_at, completed_at, trigger, json.dumps(details or {}, ensure_ascii=True)),
+            (
+                job_type,
+                status,
+                started_at,
+                completed_at,
+                trigger,
+                json.dumps(details or {}, ensure_ascii=True),
+            ),
         )
         conn.commit()
         return int(cursor.lastrowid or 0)
