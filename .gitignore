@@ -30,6 +30,7 @@ site/
 .vscode/
 .cursor/
 .tmp/
+specs/
 
 dev-docs/
 
