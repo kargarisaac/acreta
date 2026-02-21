@@ -1,11 +1,10 @@
-"""Minimal Claude Agent SDK runtime for Acreta chat and memory-write flows."""
+"""Minimal Claude Agent SDK runtime for Acreta chat, sync, and maintain flows."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import secrets
-import shlex
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +13,12 @@ from typing import Any
 import frontmatter
 
 from acreta.config.settings import get_config
+from acreta.runtime.prompts import (
+    build_maintain_prompt,
+    build_sync_prompt,
+    build_system_prompt,
+)
+from acreta.runtime.prompts.maintain import build_maintain_artifact_paths
 from acreta.runtime.providers import (
     ProviderConfig,
     apply_provider_env,
@@ -34,28 +39,10 @@ MEMORY_WRITE_TOOLS = [
 ]
 
 
-def _default_run_folder_name() -> str:
-    """Build deterministic per-run workspace folder name."""
+def _default_run_folder_name(prefix: str = "sync") -> str:
+    """Build deterministic per-run workspace folder name with given prefix."""
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    return f"sync-{stamp}-{secrets.token_hex(3)}"
-
-
-def _build_system_prompt(skills: list[str] | None = None) -> str:
-    """Build minimal lead-agent system prompt."""
-    skills_section = ""
-    if skills:
-        skills_section = "\nSkills:\n" + "\n".join(f"- {item}" for item in skills)
-    return (
-        "You are AcretaAgent, the lead memory orchestrator.\n"
-        "Rules:\n"
-        "- Lead agent is the only writer and final decider.\n"
-        "- Decisions must be explicit: add, update, or no-op.\n"
-        "- Use TodoWrite for checklist lifecycle.\n"
-        "- Use Task with Explore subagent for read-only memory matching.\n"
-        "- Search project-first, then global fallback.\n"
-        "- Never emit wikilink syntax.\n"
-        "- Keep outputs concise and structured." + skills_section
-    )
+    return f"{prefix}-{stamp}-{secrets.token_hex(3)}"
 
 
 def _run_coroutine_sync(coro: Any) -> Any:
@@ -69,7 +56,7 @@ def _run_coroutine_sync(coro: Any) -> Any:
 
 
 def _build_artifact_paths(run_folder: Path) -> dict[str, Path]:
-    """Return canonical workspace artifact paths for one run folder."""
+    """Return canonical workspace artifact paths for one sync run folder."""
     return {
         "extract": run_folder / "extract.json",
         "summary": run_folder / "summary.json",
@@ -81,7 +68,7 @@ def _build_artifact_paths(run_folder: Path) -> dict[str, Path]:
 
 
 class AcretaAgent:
-    """Thin runtime wrapper around Claude Agent SDK with one memory-write flow."""
+    """Thin runtime wrapper around Claude Agent SDK with sync, maintain, and chat flows."""
 
     def __init__(
         self,
@@ -99,7 +86,7 @@ class AcretaAgent:
         self.provider_config: ProviderConfig = get_provider_config(provider)
         self.model = resolve_model(model_alias, self.provider_config)
         self.skills = list(skills or [])
-        self.system_prompt = _build_system_prompt(self.skills)
+        self.system_prompt = build_system_prompt(self.skills)
         self.single_tools = (
             list(single_tools) if single_tools is not None else list(READ_ONLY_TOOLS)
         )
@@ -400,74 +387,7 @@ class AcretaAgent:
             )
         )
 
-    def _build_memory_write_prompt(
-        self,
-        *,
-        trace_file: Path,
-        memory_root: Path,
-        run_folder: Path,
-        artifact_paths: dict[str, Path],
-        metadata: dict[str, str],
-    ) -> str:
-        """Build lead-agent prompt for the memory write flow."""
-        metadata_json = json.dumps(metadata, ensure_ascii=True)
-        artifact_json = json.dumps(
-            {key: str(path) for key, path in artifact_paths.items()}, ensure_ascii=True
-        )
-        extract_cmd = (
-            "python3 -m acreta.memory.extract_pipeline "
-            f"--trace-path {shlex.quote(str(trace_file))} "
-            f"--output {shlex.quote(str(artifact_paths['extract']))} "
-            f"--metadata-json {shlex.quote(metadata_json)} "
-            "--metrics-json '{}'"
-        )
-        summary_cmd = (
-            "python3 -m acreta.memory.summarization_pipeline "
-            f"--trace-path {shlex.quote(str(trace_file))} "
-            f"--output {shlex.quote(str(artifact_paths['summary']))} "
-            f"--memory-root {shlex.quote(str(memory_root))} "
-            f"--metadata-json {shlex.quote(metadata_json)} "
-            "--metrics-json '{}'"
-        )
-        from acreta.memory.memory_record import memory_write_schema_prompt
-
-        schema_rules = memory_write_schema_prompt()
-        return (
-            "Run the Acreta agent-led memory write flow.\n\n"
-            "Inputs:\n"
-            f"- trace_path: {trace_file}\n"
-            f"- memory_root_path: {memory_root}\n"
-            f"- run_folder_path: {run_folder}\n"
-            f"- artifact_paths_json: {artifact_json}\n\n"
-            "Checklist (must use TodoWrite and move statuses from pending -> in_progress -> completed):\n"
-            "- validate_inputs\n- run_extract_pipeline\n- run_summary_pipeline\n- run_explorer_checks\n"
-            "- decide_add_update_no_op\n- write_memory_files\n- write_run_decision_report\n\n"
-            f"{schema_rules}\n\n"
-            "Execution rules:\n"
-            "- Do not inline or normalize trace content. Use only trace_path file access.\n"
-            "- Use Bash to run DSPy pipelines:\n"
-            f"  1) {extract_cmd}\n"
-            f"  2) {summary_cmd}\n"
-            "- Read extract.json from artifact paths.\n"
-            "- The summary pipeline writes the summary directly to memory_root/summaries/ via --memory-root. Do NOT write summary files yourself.\n"
-            "- For candidate matching, use Task with built-in Explore subagent first. If unavailable, use Task with `explore-reader`.\n"
-            "- Explorer subagents are read-only and must return: candidate_id, action_hint, matched_file, evidence.\n"
-            "- Lead agent is the only writer and final decider.\n"
-            "- Deterministic decision policy for non-summary candidates:\n"
-            "  - no_op when matched memory has exact same primitive + title + body.\n"
-            "  - update when primitive matches and token-overlap score >= 0.72.\n"
-            "  - add otherwise.\n"
-            "- Write/update markdown memory files with YAML frontmatter in memory_root/decisions, memory_root/learnings.\n"
-            "- If extract returns 0 candidates, write an empty JSONL file to subagents_log (explorer is skipped).\n"
-            f"- Write explorer outputs to {artifact_paths['subagents_log']} as JSONL.\n"
-            f"- Write run report JSON to {artifact_paths['memory_actions']} with keys: run_id, todos, actions, counts, written_memory_paths, trace_path.\n"
-            "- Include overlap score evidence in actions when action is update/no_op.\n"
-            "- counts keys must be: add, update, no_op.\n"
-            "- Every written/updated file path must be absolute.\n\n"
-            "Return one short plain-text completion line."
-        )
-
-    def run_sync(
+    def chat(
         self,
         prompt: str,
         session_id: str | None = None,
@@ -486,7 +406,7 @@ class AcretaAgent:
             env=self._runtime_env(runtime_cwd),
         )
 
-    def run(
+    def sync(
         self,
         trace_path: str | Path,
         memory_root: str | Path | None = None,
@@ -508,7 +428,7 @@ class AcretaAgent:
             if workspace_root
             else (repo_root / ".acreta" / "workspace")
         )
-        run_folder = resolved_workspace_root / _default_run_folder_name()
+        run_folder = resolved_workspace_root / _default_run_folder_name("sync")
         run_folder.mkdir(parents=True, exist_ok=True)
         artifact_paths = _build_artifact_paths(run_folder)
         metadata = {
@@ -523,7 +443,7 @@ class AcretaAgent:
         if not artifact_paths["subagents_log"].exists():
             artifact_paths["subagents_log"].write_text("", encoding="utf-8")
 
-        prompt = self._build_memory_write_prompt(
+        prompt = build_sync_prompt(
             trace_file=trace_file,
             memory_root=resolved_memory_root,
             run_folder=run_folder,
@@ -641,6 +561,115 @@ class AcretaAgent:
             "summary_path": summary_path,
         }
 
+    def maintain(
+        self,
+        memory_root: str | Path | None = None,
+        workspace_root: str | Path | None = None,
+    ) -> dict[str, Any]:
+        """Run lead memory-maintenance flow using SDK orchestration."""
+        repo_root = Path(self._default_cwd or Path.cwd()).expanduser().resolve()
+        resolved_memory_root = (
+            Path(memory_root).expanduser().resolve()
+            if memory_root
+            else (repo_root / ".acreta" / "memory")
+        )
+        resolved_workspace_root = (
+            Path(workspace_root).expanduser().resolve()
+            if workspace_root
+            else (repo_root / ".acreta" / "workspace")
+        )
+        run_folder = resolved_workspace_root / _default_run_folder_name("maintain")
+        run_folder.mkdir(parents=True, exist_ok=True)
+        artifact_paths = build_maintain_artifact_paths(run_folder)
+
+        prompt = build_maintain_prompt(
+            memory_root=resolved_memory_root,
+            run_folder=run_folder,
+            artifact_paths=artifact_paths,
+        )
+        metadata = {"run_id": run_folder.name}
+        hooks = self._build_pretool_hooks(
+            (resolved_memory_root, run_folder),
+            memory_root=resolved_memory_root,
+            metadata=metadata,
+        )
+        tools = list(MEMORY_WRITE_TOOLS)
+        if self.skills and "Skill" not in tools:
+            tools.append("Skill")
+        from claude_agent_sdk import AgentDefinition
+
+        agents = {
+            "explore-reader": AgentDefinition(
+                description="Read-only memory explorer for candidate matching evidence.",
+                prompt="Return JSONL-style evidence with fields: candidate_id, action_hint, matched_file, evidence.",
+                tools=["Read", "Grep", "Glob"],
+                model="inherit",
+            )
+        }
+        response, _ = self._run_sdk_sync(
+            prompt=prompt,
+            session_id=self.generate_session_id(),
+            cwd=str(repo_root),
+            allowed_tools=tools,
+            permission_mode="acceptEdits",
+            add_dirs=(
+                resolved_memory_root,
+                resolved_workspace_root,
+                run_folder,
+            ),
+            env=self._runtime_env(repo_root),
+            hooks=hooks,
+            agents=agents,
+        )
+        artifact_paths["agent_log"].write_text(
+            (response if response.endswith("\n") else f"{response}\n"), encoding="utf-8"
+        )
+
+        actions_path = artifact_paths["maintain_actions"]
+        if not actions_path.exists():
+            raise RuntimeError(f"missing_artifact:{actions_path}")
+        try:
+            report = json.loads(actions_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"invalid_json_artifact:{actions_path}") from exc
+        if not isinstance(report, dict):
+            raise RuntimeError(f"invalid_report_shape:{actions_path}")
+
+        counts_raw = (
+            report.get("counts") if isinstance(report.get("counts"), dict) else {}
+        )
+        counts = {
+            "merged": int(counts_raw.get("merged") or 0),
+            "archived": int(counts_raw.get("archived") or 0),
+            "consolidated": int(counts_raw.get("consolidated") or 0),
+            "unchanged": int(counts_raw.get("unchanged") or 0),
+        }
+
+        # Validate all action paths are inside allowed roots
+        for action in report.get("actions") or []:
+            if not isinstance(action, dict):
+                continue
+            for path_key in ("source_path", "target_path"):
+                raw = str(action.get(path_key) or "").strip()
+                if not raw:
+                    continue
+                rp = Path(raw).resolve()
+                if not (
+                    self._is_within(rp, resolved_memory_root)
+                    or self._is_within(rp, run_folder)
+                ):
+                    raise RuntimeError(
+                        f"maintain_action_path_outside_allowed_roots:{path_key}={rp}"
+                    )
+
+        return {
+            "memory_root": str(resolved_memory_root),
+            "workspace_root": str(resolved_workspace_root),
+            "run_folder": str(run_folder),
+            "artifacts": {key: str(path) for key, path in artifact_paths.items()},
+            "counts": counts,
+        }
+
 
 if __name__ == "__main__":
     from tempfile import TemporaryDirectory
@@ -648,12 +677,13 @@ if __name__ == "__main__":
     agent = AcretaAgent(skills=["acreta"])
     assert agent.generate_session_id().startswith("acreta-")
     assert "Task with Explore subagent" in agent.system_prompt
+
     with TemporaryDirectory() as tmp_dir:
         root = Path(tmp_dir)
         trace_file = root / "trace.jsonl"
         trace_file.write_text('{"role":"user","content":"hello"}\n', encoding="utf-8")
         run_folder = root / "workspace" / "sync-selftest"
-        prompt = agent._build_memory_write_prompt(
+        prompt = build_sync_prompt(
             trace_file=trace_file,
             memory_root=root / "memory",
             run_folder=run_folder,
@@ -667,3 +697,13 @@ if __name__ == "__main__":
         assert "artifact_paths_json" in prompt
         assert "--memory-root" in prompt
         assert "Do NOT write summary files yourself" in prompt
+
+    maintain_prompt = build_maintain_prompt(
+        memory_root=Path("/tmp/memory"),
+        run_folder=Path("/tmp/workspace/maintain-test"),
+        artifact_paths=build_maintain_artifact_paths(
+            Path("/tmp/workspace/maintain-test")
+        ),
+    )
+    assert "memory maintenance" in maintain_prompt
+    assert "scan_memories" in maintain_prompt
