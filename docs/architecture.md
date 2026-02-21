@@ -1,6 +1,6 @@
 # Acreta Architecture (Memory V2)
 
-Last updated: 2026-02-20
+Last updated: 2026-02-21
 
 ## Summary
 
@@ -48,20 +48,18 @@ Canonical memory files:
 - `.acreta/memory/learnings/*.md`
 - `.acreta/memory/summaries/*.md`
 
-Canonical sidecars:
+Trace archive:
 
-- `.acreta/meta/state/<id>.json`
-- `.acreta/meta/evidence/<id>.json`
 - `.acreta/meta/traces/sessions/<agent>/<run_id>.jsonl`
 
 Run workspace artifacts:
 
-- `.acreta/workspace/<run_mode>-<YYYYMMDD-HHMMSS>-<shortid>/extract.json`
-- `.acreta/workspace/<run_mode>-<YYYYMMDD-HHMMSS>-<shortid>/summary.json`
-- `.acreta/workspace/<run_mode>-<YYYYMMDD-HHMMSS>-<shortid>/memory_actions.json`
-- `.acreta/workspace/<run_mode>-<YYYYMMDD-HHMMSS>-<shortid>/agent.log`
-- `.acreta/workspace/<run_mode>-<YYYYMMDD-HHMMSS>-<shortid>/subagents.log`
-- `.acreta/workspace/<run_mode>-<YYYYMMDD-HHMMSS>-<shortid>/session.log`
+- `.acreta/workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/extract.json`
+- `.acreta/workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/summary.json`
+- `.acreta/workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/memory_actions.json`
+- `.acreta/workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/agent.log`
+- `.acreta/workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/subagents.log`
+- `.acreta/workspace/sync-<YYYYMMDD-HHMMSS>-<shortid>/session.log`
 
 Index folder:
 
@@ -91,23 +89,14 @@ Memory scope modes:
 - No wikilink dependency in prompts or storage
 - No required parser layer for `[[...]]` syntax
 
-## Hot and cold paths
+## Runtime paths
 
-- `sync` hot path:
-  - discover/index sessions
-  - run lead by `trace_path`
-  - write run artifacts to workspace folder
-  - run lead decision (`add|update|no-op`)
-  - write memory + summaries
-- `maintain` cold path:
-  - consolidate duplicates
-  - decay lifecycle/confidence
-  - write extract report
-
-Query path (`chat`, `memory search`) is read-only.
+- `sync`: discover/index sessions, run lead by `trace_path`, write run artifacts to workspace folder, run lead decision (`add|update|no-op`), write memory + summaries.
+- `maintain`: consolidate duplicates, decay, write extract report (stubbed for agentic rewrite).
+- Query path (`chat`, `memory search`) is read-only.
 
 Security boundary for memory-write flow:
 
 - `permission_mode` is not `bypassPermissions`
-- `PreToolUse` hook denies `Write|Edit` outside `memory_root` and current run folder
+- `PreToolUse` hook denies `Write|Edit` outside `memory_root` and current run folder. The PreToolUse boundary guard covers Write/Edit calls only. Bash is allowed for pipeline execution and is not subject to path containment. The agent is trusted within its SDK session.
 - subagent exploration stays read-only (`Explore` first; fallback `explore-reader` with `Read|Grep|Glob`)

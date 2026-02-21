@@ -892,8 +892,8 @@
                         <div class="memory-title" x-text="memory.title"></div>
                         <div class="memory-snippet" x-html="sanitizeSnippet(memory.snippet || memory.preview || '')"></div>
                         <div class="memory-meta">
-                          <span class="memory-chip" x-text="memory.learning_type"></span>
-                          <span class="memory-chip" x-text="memory.lifecycle_state"></span>
+                          <span class="memory-chip" x-text="memory.kind"></span>
+                          <span class="memory-chip" x-text="memory.kind || memory.primitive"></span>
                           <span class="memory-chip" x-show="memory.projects && memory.projects.length" x-text="memory.projects[0]"></span>
                           <span class="memory-chip" x-show="memory.tags && memory.tags.length" x-text="'#' + memory.tags[0]"></span>
                           <span class="memory-chip" x-text="formatDateTime(memory.updated)"></span>
@@ -924,9 +924,9 @@
                       <input class="form-control" type="text" x-model="$store.memories.draft.title" @input="markMemoryDirty()" />
                     </div>
                     <div class="row g-2">
-                      <div class="col-12 col-md-4">
+                      <div class="col-12 col-md-6">
                         <label class="form-label">Type</label>
-                        <select class="form-select" x-model="$store.memories.draft.learning_type" @change="markMemoryDirty()">
+                        <select class="form-select" x-model="$store.memories.draft.kind" @change="markMemoryDirty()">
                           <option value="pattern">Pattern</option>
                           <option value="convention">Convention</option>
                           <option value="pitfall">Pitfall</option>
@@ -937,29 +937,15 @@
                           <option value="delight">Delight</option>
                         </select>
                       </div>
-                      <div class="col-12 col-md-4">
-                        <label class="form-label">State</label>
-                        <select class="form-select" x-model="$store.memories.draft.lifecycle_state" @change="markMemoryDirty()">
-                          <option value="candidate">Candidate</option>
-                          <option value="validated">Validated</option>
-                          <option value="established">Established</option>
-                          <option value="stale">Stale</option>
-                          <option value="archived">Archived</option>
-                        </select>
-                      </div>
-                      <div class="col-12 col-md-4">
-                        <label class="form-label">Occurrences</label>
-                        <input class="form-control" type="number" min="1" step="1" x-model.number="$store.memories.draft.occurrences" @input="markMemoryDirty()" />
-                      </div>
-                    </div>
-                    <div>
-                      <label class="form-label">Confidence</label>
-                      <div class="row g-2 align-items-center">
-                        <div class="col-8">
-                          <input class="form-range" type="range" min="0" max="1" step="0.05" x-model.number="$store.memories.draft.confidence" @input="markMemoryDirty()" />
-                        </div>
-                        <div class="col-4">
-                          <input class="form-control" type="number" min="0" max="1" step="0.01" x-model.number="$store.memories.draft.confidence" @input="markMemoryDirty()" />
+                      <div class="col-12 col-md-6">
+                        <label class="form-label">Confidence</label>
+                        <div class="row g-2 align-items-center">
+                          <div class="col-8">
+                            <input class="form-range" type="range" min="0" max="1" step="0.05" x-model.number="$store.memories.draft.confidence" @input="markMemoryDirty()" />
+                          </div>
+                          <div class="col-4">
+                            <input class="form-control" type="number" min="0" max="1" step="0.01" x-model.number="$store.memories.draft.confidence" @input="markMemoryDirty()" />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -968,31 +954,9 @@
                       <textarea class="form-control" rows="6" x-model="$store.memories.draft.body" @input="markMemoryDirty()"></textarea>
                     </div>
                     <div class="row g-2">
-                      <div class="col-12 col-md-4">
-                        <label class="form-label">Projects</label>
-                        <input class="form-control" type="text" x-model="$store.memories.draft.projects" @input="markMemoryDirty()" />
-                      </div>
-                      <div class="col-12 col-md-4">
+                      <div class="col-12 col-md-6">
                         <label class="form-label">Tags</label>
                         <input class="form-control" type="text" x-model="$store.memories.draft.tags" @input="markMemoryDirty()" />
-                      </div>
-                      <div class="col-12 col-md-4">
-                        <label class="form-label">Agent Types</label>
-                        <input class="form-control" type="text" x-model="$store.memories.draft.agent_types" @input="markMemoryDirty()" />
-                      </div>
-                    </div>
-                    <div class="row g-2">
-                      <div class="col-12 col-md-6">
-                        <label class="form-label">Source Sessions</label>
-                        <input class="form-control" type="text" x-model="$store.memories.draft.source_sessions" @input="markMemoryDirty()" />
-                      </div>
-                      <div class="col-12 col-md-3">
-                        <label class="form-label">Version Of</label>
-                        <input class="form-control" type="text" x-model="$store.memories.draft.version_of" @input="markMemoryDirty()" />
-                      </div>
-                      <div class="col-12 col-md-3">
-                        <label class="form-label">Supersedes</label>
-                        <input class="form-control" type="text" x-model="$store.memories.draft.supersedes" @input="markMemoryDirty()" />
                       </div>
                     </div>
                     <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
@@ -2619,16 +2583,9 @@
             this.$store.memories.draft = {
               title: memory.title || '',
               body: memory.body || '',
-              learning_type: memory.learning_type || 'pattern',
-              lifecycle_state: memory.lifecycle_state || 'candidate',
+              kind: memory.kind || 'pattern',
               confidence: memory.confidence || 0,
-              occurrences: memory.occurrences || 1,
-              projects: formatCommaList(memory.projects),
               tags: formatCommaList(memory.tags),
-              agent_types: formatCommaList(memory.agent_types),
-              source_sessions: formatCommaList(memory.source_sessions),
-              version_of: memory.version_of || '',
-              supersedes: formatCommaList(memory.supersedes),
             };
             this.$store.memories.dirty = false;
           } catch (e) {
@@ -2648,16 +2605,9 @@
           this.$store.memories.draft = {
             title: memory.title || '',
             body: memory.body || '',
-            learning_type: memory.learning_type || 'pattern',
-            lifecycle_state: memory.lifecycle_state || 'candidate',
+            kind: memory.kind || 'pattern',
             confidence: memory.confidence || 0,
-            occurrences: memory.occurrences || 1,
-            projects: formatCommaList(memory.projects),
             tags: formatCommaList(memory.tags),
-            agent_types: formatCommaList(memory.agent_types),
-            source_sessions: formatCommaList(memory.source_sessions),
-            version_of: memory.version_of || '',
-            supersedes: formatCommaList(memory.supersedes),
           };
           this.$store.memories.dirty = false;
           this.$store.memories.statusText = 'Reset changes';
@@ -2677,16 +2627,9 @@
             const payload = {
               title: this.$store.memories.draft.title,
               body: this.$store.memories.draft.body,
-              learning_type: this.$store.memories.draft.learning_type,
-              lifecycle_state: this.$store.memories.draft.lifecycle_state,
+              kind: this.$store.memories.draft.kind,
               confidence: this.$store.memories.draft.confidence,
-              occurrences: this.$store.memories.draft.occurrences,
-              projects: parseCommaList(this.$store.memories.draft.projects),
               tags: parseCommaList(this.$store.memories.draft.tags),
-              agent_types: parseCommaList(this.$store.memories.draft.agent_types),
-              source_sessions: parseCommaList(this.$store.memories.draft.source_sessions),
-              version_of: this.$store.memories.draft.version_of,
-              supersedes: parseCommaList(this.$store.memories.draft.supersedes),
             };
             const resp = await fetch(`/api/memories/${memoryId}`, {
               method: 'PUT',

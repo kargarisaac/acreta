@@ -1,14 +1,21 @@
-"""Trace summarization pipeline that outputs markdown-frontmatter-ready metadata + summary."""
+"""Trace summarization pipeline that outputs markdown-frontmatter-ready metadata + summary.
+
+When --memory-root is provided, the pipeline writes the summary markdown file
+directly to memory_root/summaries/{date}-{slug}.md using python-frontmatter.
+"""
 
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import dspy
+import frontmatter
 from pydantic import BaseModel, Field
 
+from acreta.memory.memory_record import canonical_memory_filename, slugify
 from acreta.memory.utils import configure_dspy_lm, env_positive_int
 from acreta.sessions import catalog as session_db
 
@@ -17,14 +24,28 @@ class TraceSummaryCandidate(BaseModel):
     """Structured trace summary payload used to build markdown frontmatter later."""
 
     title: str = Field(description="Short trace title for markdown frontmatter.")
-    description: str = Field(description="One-line description of what the session achieved.")
+    description: str = Field(
+        description="One-line description of what the session achieved."
+    )
     summary: str = Field(description="Natural-language summary with at most 300 words.")
     date: str = Field(description="Session date in YYYY-MM-DD.")
     time: str = Field(description="Session time in HH:MM:SS.")
-    coding_agent: str = Field(description="Coding agent label like codex, claude code, cursor, or windsurf.")
-    raw_trace_path: str = Field(description="Absolute path to the original raw trace file.")
-    run_id: str | None = Field(default=None, description="Session run id when available.")
-    repo_name: str | None = Field(default=None, description="Repository short name when available.")
+    coding_agent: str = Field(
+        description="Coding agent label like codex, claude code, cursor, or windsurf."
+    )
+    raw_trace_path: str = Field(
+        description="Absolute path to the original raw trace file."
+    )
+    run_id: str | None = Field(
+        default=None, description="Session run id when available."
+    )
+    repo_name: str | None = Field(
+        default=None, description="Repository short name when available."
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Group/cluster labels for this summary. No limit.",
+    )
 
 
 class TraceSummarySignature(dspy.Signature):
@@ -34,13 +55,14 @@ class TraceSummarySignature(dspy.Signature):
     - Keep summary factual and grounded in trace evidence.
     - Keep summary length <= 300 words.
     - Keep title and description concise and specific.
+    - Assign descriptive tags (group/cluster labels) for categorization. No limit on tag count.
     """
 
     transcript: str = dspy.InputField(desc="Raw transcript text")
     metadata: dict[str, Any] = dspy.InputField(desc="Session metadata")
     metrics: dict[str, Any] = dspy.InputField(desc="Deterministic metrics")
     summary_payload: TraceSummaryCandidate = dspy.OutputField(
-        desc="Structured summary payload with title/description/date/time/agent/path fields"
+        desc="Structured summary payload with title/description/date/time/agent/path/tags fields"
     )
 
 
@@ -49,7 +71,6 @@ def _summarize_trace_with_rlm(
     *,
     metadata: dict[str, Any] | None = None,
     metrics: dict[str, Any] | None = None,
-    session_file_path: Path,
 ) -> dict[str, Any]:
     """Run DSPy RLM summarization and return schema-validated summary metadata payload."""
     if not transcript.strip():
@@ -78,6 +99,45 @@ def _summarize_trace_with_rlm(
     return candidate.model_dump(mode="json", exclude_none=True)
 
 
+def write_summary_markdown(
+    payload: dict[str, Any],
+    memory_root: Path,
+    *,
+    run_id: str = "",
+) -> Path:
+    """Write summary markdown with frontmatter to memory_root/summaries/{date}-{slug}.md."""
+    title = str(payload.get("title") or "untitled")
+    summary_body = str(payload.get("summary") or "")
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    fm_dict: dict[str, Any] = {
+        "id": slugify(title),
+        "title": title,
+        "created": now_iso,
+        "source": run_id,
+        "description": payload.get("description", ""),
+        "date": payload.get("date", now_iso[:10]),
+        "time": payload.get("time", now_iso[11:19]),
+        "coding_agent": payload.get("coding_agent", "unknown"),
+        "raw_trace_path": payload.get("raw_trace_path", ""),
+        "run_id": payload.get("run_id") or run_id,
+        "repo_name": payload.get("repo_name", ""),
+        "tags": payload.get("tags", []),
+    }
+
+    filename = canonical_memory_filename(
+        title=title,
+        run_id=run_id,
+    )
+    summaries_dir = memory_root / "summaries"
+    summaries_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = summaries_dir / filename
+
+    post = frontmatter.Post(summary_body, **fm_dict)
+    summary_path.write_text(frontmatter.dumps(post) + "\n", encoding="utf-8")
+    return summary_path
+
+
 def summarize_trace_from_session_file(
     session_file_path: Path,
     *,
@@ -93,7 +153,6 @@ def summarize_trace_from_session_file(
         transcript,
         metadata=session_metadata,
         metrics=metrics,
-        session_file_path=session_file_path,
     )
 
 
@@ -106,9 +165,15 @@ if __name__ == "__main__":
 
     from acreta.config.settings import reload_config
 
-    parser = argparse.ArgumentParser(prog="python -m acreta.memory.summarization_pipeline")
+    parser = argparse.ArgumentParser(
+        prog="python -m acreta.memory.summarization_pipeline"
+    )
     parser.add_argument("--trace-path")
     parser.add_argument("--output")
+    parser.add_argument(
+        "--memory-root",
+        help="When provided, write summary markdown to memory_root/summaries/",
+    )
     parser.add_argument("--metadata-json", default="{}")
     parser.add_argument("--metrics-json", default="{}")
     args = parser.parse_args()
@@ -122,7 +187,16 @@ if __name__ == "__main__":
             metadata=metadata if isinstance(metadata, dict) else {},
             metrics=metrics if isinstance(metrics, dict) else {},
         )
-        encoded = json.dumps(payload, ensure_ascii=True, indent=2) + "\n"
+
+        # Write summary markdown and output pointer
+        if not args.memory_root:
+            raise SystemExit("--memory-root is required")
+        mr = Path(args.memory_root).expanduser().resolve()
+        run_id = (metadata if isinstance(metadata, dict) else {}).get("run_id", "")
+        summary_path = write_summary_markdown(payload, mr, run_id=run_id)
+        output_data = {"summary_path": str(summary_path)}
+
+        encoded = json.dumps(output_data, ensure_ascii=True, indent=2) + "\n"
         if args.output:
             output_path = Path(args.output).expanduser()
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,7 +209,9 @@ if __name__ == "__main__":
             os.environ["ACRETA_DATA_DIR"] = str(tmp_path)
             os.environ["ACRETA_MEMORY_DIR"] = str(tmp_path / "memory")
             os.environ["ACRETA_INDEX_DIR"] = str(tmp_path / "index")
-            os.environ["ACRETA_SESSIONS_DB"] = str(tmp_path / "index" / "sessions.sqlite3")
+            os.environ["ACRETA_SESSIONS_DB"] = str(
+                tmp_path / "index" / "sessions.sqlite3"
+            )
             os.environ["ACRETA_MEMORY_SCOPE"] = "global_only"
             reload_config()
             session_db.init_sessions_db()
@@ -155,7 +231,9 @@ if __name__ == "__main__":
                 content="queue heartbeat fix",
                 session_path=str(session_path),
             )
-            payload = summarize_trace_from_session_file(session_path, metadata={"run_id": run_id}, metrics={})
+            payload = summarize_trace_from_session_file(
+                session_path, metadata={"run_id": run_id}, metrics={}
+            )
 
         assert isinstance(payload, dict)
         assert payload["title"]

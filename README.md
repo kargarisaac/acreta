@@ -20,7 +20,7 @@ Lead flow:
 1. Extract candidates from transcript archive.
 2. Lead agent runs `TodoWrite` checklist and delegates read-only explorer tasks (`Explore` first).
 3. Lead runs deterministic decision policy for `add|update|no-op`.
-4. Lead writes memory and sidecars under hook-enforced write boundaries.
+4. Lead writes memory under hook-enforced write boundaries.
 5. `sync` stays lightweight; cold rebuilds stay in `maintain`.
 
 ## How to use
@@ -93,12 +93,10 @@ Project scope:
     learnings/
     summaries/
   meta/
-    evidence/
-    state/
     traces/
       sessions/
   workspace/
-    <run_mode>-<YYYYMMDD-HHMMSS>-<shortid>/
+    sync-<YYYYMMDD-HHMMSS>-<shortid>/
       extract.json
       summary.json
       memory_actions.json
@@ -118,12 +116,10 @@ Global fallback scope:
     learnings/
     summaries/
   meta/
-    evidence/
-    state/
     traces/
       sessions/
   workspace/
-    <run_mode>-<YYYYMMDD-HHMMSS>-<shortid>/
+    sync-<YYYYMMDD-HHMMSS>-<shortid>/
       extract.json
       summary.json
       memory_actions.json
@@ -135,12 +131,11 @@ Global fallback scope:
 
 ## Primitive frontmatter (lean)
 
-- `decision`: `id,title,status,decided_by,tags,related,created,updated`
-- `learning`: `id,title,kind,tags,related,created,updated`
+- `decision`: `id,title,created,updated,source,confidence,tags,related`
+- `learning`: `id,title,created,updated,source,confidence,tags,related,kind`
 - `summary`: `id,title,description,date,time,coding_agent,raw_trace_path,run_id,repo_name,related,created,updated`
 
-Operational metadata is not in frontmatter.
-It is stored in sidecars under `meta/state` and `meta/evidence`.
+All metadata lives in frontmatter — no sidecars.
 
 ## Reset policy
 

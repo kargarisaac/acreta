@@ -16,8 +16,9 @@ from acreta.adapters.common import load_jsonl_dict_lines
 from acreta.config.logging import logger
 from acreta.config.settings import get_config, get_config_sources, get_user_config_path
 from acreta.memory.extract_pipeline import build_extract_report
-from acreta.memory.memory_record import Learning
-from acreta.memory.memory_repo import MemoryRepository
+import frontmatter as fm_lib
+
+from acreta.memory.memory_record import MemoryType, memory_folder
 from acreta.runtime.providers import get_provider_config
 from acreta.sessions.catalog import (
     count_session_jobs_by_status,
@@ -40,7 +41,9 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _parse_int(raw: str | None, default: int, *, minimum: int = 0, maximum: int = 10_000) -> int:
+def _parse_int(
+    raw: str | None, default: int, *, minimum: int = 0, maximum: int = 10_000
+) -> int:
     """Parse integer query/body parameter and clamp to bounds."""
     try:
         value = int(raw or default)
@@ -143,7 +146,9 @@ def _compute_stats(rows: list[sqlite3.Row]) -> dict[str, Any]:
         totals["tokens"] += tokens
         totals["duration_ms"] += duration
 
-        agent_stats = by_agent.setdefault(agent, {"runs": 0, "messages": 0, "tool_calls": 0, "tokens": 0})
+        agent_stats = by_agent.setdefault(
+            agent, {"runs": 0, "messages": 0, "tool_calls": 0, "tokens": 0}
+        )
         agent_stats["runs"] += 1
         agent_stats["messages"] += messages
         agent_stats["tool_calls"] += tools
@@ -155,12 +160,16 @@ def _compute_stats(rows: list[sqlite3.Row]) -> dict[str, Any]:
             continue
         day_key = dt.astimezone(timezone.utc).strftime("%Y-%m-%d")
         hour_key = int(dt.astimezone(timezone.utc).hour)
-        bucket = daily.setdefault(day_key, {"messages": 0, "tool_calls": 0, "tokens": 0})
+        bucket = daily.setdefault(
+            day_key, {"messages": 0, "tool_calls": 0, "tokens": 0}
+        )
         bucket[agent] = bucket.get(agent, 0) + 1
         bucket["messages"] += messages
         bucket["tool_calls"] += tools
         bucket["tokens"] += tokens
-        hour_bucket = hourly.setdefault(hour_key, {"sessions": 0, "messages": 0, "tool_calls": 0, "tokens": 0})
+        hour_bucket = hourly.setdefault(
+            hour_key, {"sessions": 0, "messages": 0, "tool_calls": 0, "tokens": 0}
+        )
         hour_bucket["sessions"] += 1
         hour_bucket["messages"] += messages
         hour_bucket["tool_calls"] += tools
@@ -224,45 +233,87 @@ def _load_messages_for_run(run_doc: dict[str, Any]) -> list[dict[str, Any]]:
     return output
 
 
-def _serialize_learning(learning: Learning, *, with_body: bool) -> dict[str, Any]:
-    """Serialize learning record for list/detail dashboard APIs."""
-    payload = learning.model_dump(mode="json")
-    if not with_body:
-        payload.pop("body", None)
-        payload["snippet"] = (learning.body or "").strip()[:240]
-        payload["preview"] = payload["snippet"]
+def _list_memory_files_dashboard() -> list[Path]:
+    """List all markdown files in canonical memory primitive folders."""
+    config = get_config()
+    paths: list[Path] = []
+    for mtype in MemoryType:
+        folder = config.memory_dir / memory_folder(mtype)
+        if folder.exists():
+            paths.extend(sorted(folder.glob("*.md")))
+    return paths
+
+
+def _read_fm(path: Path) -> dict[str, Any] | None:
+    """Read frontmatter from a memory file, returning None on error."""
+    try:
+        post = fm_lib.load(str(path))
+        fm = dict(post.metadata)
+        fm["_body"] = post.content
+        fm["_path"] = str(path)
+        return fm
+    except Exception:
+        return None
+
+
+def _load_all_memories() -> list[dict[str, Any]]:
+    """Load all memory files as frontmatter dicts."""
+    items: list[dict[str, Any]] = []
+    for path in _list_memory_files_dashboard():
+        fm = _read_fm(path)
+        if fm:
+            items.append(fm)
+    return items
+
+
+def _serialize_memory(fm: dict[str, Any], *, with_body: bool) -> dict[str, Any]:
+    """Serialize memory frontmatter dict for dashboard APIs."""
+    payload = {k: v for k, v in fm.items() if not k.startswith("_")}
+    if with_body:
+        payload["body"] = fm.get("_body", "")
+    else:
+        body = str(fm.get("_body", "")).strip()[:240]
+        payload["snippet"] = body
+        payload["preview"] = body
     return payload
 
 
-def _filter_learnings(
-    all_learnings: list[Learning],
+def _filter_memories(
+    all_items: list[dict[str, Any]],
     *,
     query: str | None,
     type_filter: str | None,
     state_filter: str | None,
     project_filter: str | None,
-) -> list[Learning]:
+) -> list[dict[str, Any]]:
     """Apply lightweight memory filters for dashboard list/query APIs."""
-    items = all_learnings
+    items = all_items
     if type_filter:
-        items = [item for item in items if item.primitive.value == type_filter]
-    if state_filter:
-        items = [item for item in items if item.lifecycle_state.value == state_filter]
-    if project_filter:
-        token = project_filter.strip().lower()
-        items = [item for item in items if any(token in p.lower() for p in item.projects)]
+        items = [item for item in items if _detect_primitive(item) == type_filter]
+    # state_filter is no longer supported (lifecycle_state removed)
+    _ = state_filter
+    _ = project_filter
     if query:
         token = query.strip().lower()
         if token:
             items = [
                 item
                 for item in items
-                if token in item.title.lower()
-                or token in item.body.lower()
-                or any(token in tag.lower() for tag in item.tags)
-                or any(token in p.lower() for p in item.projects)
+                if token in str(item.get("title", "")).lower()
+                or token in str(item.get("_body", "")).lower()
+                or any(token in str(t).lower() for t in item.get("tags", []))
             ]
     return items
+
+
+def _detect_primitive(fm: dict[str, Any]) -> str:
+    """Detect primitive type from frontmatter path or fields."""
+    path = str(fm.get("_path", ""))
+    if "/decisions/" in path:
+        return "decision"
+    if "/summaries/" in path:
+        return "summary"
+    return "learning"
 
 
 def _edge_id(source: str, target: str, kind: str) -> str:
@@ -270,13 +321,11 @@ def _edge_id(source: str, target: str, kind: str) -> str:
     return f"{source}|{target}|{kind}"
 
 
-def _memory_graph_options(learnings: list[Learning]) -> dict[str, list[str]]:
-    """Return available filter options derived from loaded learnings."""
-    types = sorted({item.primitive.value for item in learnings})
-    states = sorted({item.lifecycle_state.value for item in learnings})
-    projects = sorted({project for item in learnings for project in item.projects if project})
-    tags = sorted({tag for item in learnings for tag in item.tags if tag})
-    return {"types": types, "states": states, "projects": projects, "tags": tags}
+def _memory_graph_options(items: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Return available filter options derived from loaded memory items."""
+    types = sorted({_detect_primitive(fm) for fm in items})
+    tags = sorted({str(t) for fm in items for t in fm.get("tags", []) if t})
+    return {"types": types, "states": [], "projects": [], "tags": tags}
 
 
 def _graph_filter_values(filters: dict[str, Any], key: str) -> list[str]:
@@ -298,7 +347,12 @@ def _graph_limits(
 ) -> tuple[int, int]:
     """Resolve node/edge limits with safe bounds."""
     limits = payload.get("limits") or {}
-    max_nodes = _parse_int(str(limits.get("max_nodes") or str(default_nodes)), default_nodes, minimum=50, maximum=5000)
+    max_nodes = _parse_int(
+        str(limits.get("max_nodes") or str(default_nodes)),
+        default_nodes,
+        minimum=50,
+        maximum=5000,
+    )
     max_edges = _parse_int(
         str(limits.get("max_edges") or str(default_edges)),
         default_edges,
@@ -360,16 +414,18 @@ def _load_memory_graph_edges(
 
 def _build_memory_graph_payload(
     *,
-    selected: list[Learning],
+    selected: list[dict[str, Any]],
     matched_memories: int,
     max_nodes: int,
     max_edges: int,
 ) -> dict[str, Any]:
-    """Build graph explorer nodes/edges payload from selected learnings."""
+    """Build graph explorer nodes/edges payload from selected memory dicts."""
     nodes: dict[str, dict[str, Any]] = {}
     edges: dict[str, dict[str, Any]] = {}
 
-    def add_node(node_id: str, *, label: str, kind: str, score: float, properties: dict[str, Any]) -> None:
+    def add_node(
+        node_id: str, *, label: str, kind: str, score: float, properties: dict[str, Any]
+    ) -> None:
         """Insert one graph node once, preserving first-seen payload."""
         if node_id in nodes:
             return
@@ -381,7 +437,13 @@ def _build_memory_graph_payload(
             "properties": properties,
         }
 
-    def add_edge(source: str, target: str, kind: str, weight: float, properties: dict[str, Any] | None = None) -> None:
+    def add_edge(
+        source: str,
+        target: str,
+        kind: str,
+        weight: float,
+        properties: dict[str, Any] | None = None,
+    ) -> None:
         """Insert one graph edge once, keyed by deterministic edge id."""
         edge_id = _edge_id(source, target, kind)
         if edge_id in edges:
@@ -395,41 +457,37 @@ def _build_memory_graph_payload(
             "properties": properties or {},
         }
 
-    for learning in selected:
-        memory_id = f"mem:{learning.id}"
+    for fm in selected:
+        mid = str(fm.get("id", ""))
+        memory_id = f"mem:{mid}"
+        primitive = _detect_primitive(fm)
+        tags = fm.get("tags", [])
+        confidence = float(fm.get("confidence", 0.7))
         add_node(
             memory_id,
-            label=learning.title,
+            label=str(fm.get("title", "")),
             kind="memory",
-            score=float(learning.confidence),
+            score=confidence,
             properties={
-                "memory_id": learning.id,
-                "primitive": learning.primitive.value,
-                "lifecycle_state": learning.lifecycle_state.value,
-                "projects": learning.projects,
-                "tags": learning.tags,
-                "source_sessions": learning.source_sessions,
-                "body_preview": (learning.body or "").strip()[:480],
-                "updated": learning.updated.isoformat(),
+                "memory_id": mid,
+                "primitive": primitive,
+                "tags": tags,
+                "body_preview": str(fm.get("_body", "")).strip()[:480],
+                "updated": str(fm.get("updated", "")),
             },
         )
-        type_id = f"type:{learning.primitive.value}"
-        add_node(type_id, label=learning.primitive.value, kind="type", score=0.4, properties={})
+        type_id = f"type:{primitive}"
+        add_node(type_id, label=primitive, kind="type", score=0.4, properties={})
         add_edge(memory_id, type_id, "typed_as", 0.6)
-        for project in learning.projects[:5]:
-            project_id = f"project:{project}"
-            add_node(project_id, label=project, kind="project", score=0.4, properties={})
-            add_edge(memory_id, project_id, "in_project", 0.6)
-        for tag in learning.tags[:8]:
+        for tag in (tags or [])[:8]:
             tag_id = f"tag:{tag}"
-            add_node(tag_id, label=tag, kind="tag", score=0.4, properties={})
+            add_node(tag_id, label=str(tag), kind="tag", score=0.4, properties={})
             add_edge(memory_id, tag_id, "tagged", 0.55)
-        for session_id in learning.source_sessions[:6]:
-            sid = f"session:{session_id}"
-            add_node(sid, label=session_id, kind="session", score=0.35, properties={})
-            add_edge(memory_id, sid, "from_session", 0.5)
 
-    for source_id, target_id, reason, score in _load_memory_graph_edges(memory_ids=[item.id for item in selected], limit=4000):
+    memory_ids = [str(fm.get("id", "")) for fm in selected if fm.get("id")]
+    for source_id, target_id, reason, score in _load_memory_graph_edges(
+        memory_ids=memory_ids, limit=4000
+    ):
         source = f"mem:{source_id}"
         target = f"mem:{target_id}"
         if source in nodes and target in nodes:
@@ -442,7 +500,11 @@ def _build_memory_graph_payload(
     if len(node_values) > max_nodes:
         node_values = node_values[:max_nodes]
         allowed = {item["id"] for item in node_values}
-        edge_values = [item for item in edge_values if item["source"] in allowed and item["target"] in allowed]
+        edge_values = [
+            item
+            for item in edge_values
+            if item["source"] in allowed and item["target"] in allowed
+        ]
         truncated = True
     if len(edge_values) > max_edges:
         edge_values = edge_values[:max_edges]
@@ -450,53 +512,36 @@ def _build_memory_graph_payload(
     if truncated:
         warnings.append("Result truncated to requested node/edge limits.")
 
-    return {
-        "nodes": node_values,
-        "edges": edge_values,
-        "stats": {
-            "matched_memories": matched_memories,
-            "returned_nodes": len(node_values),
-            "returned_edges": len(edge_values),
-            "truncated": truncated,
-        },
-        "warnings": warnings,
-        "cursor": None,
-    }
-
-
 def _memory_graph_query(payload: dict[str, Any]) -> dict[str, Any]:
     """Execute memory graph query with filters and return bounded payload."""
     query = str(payload.get("query") or "")
     filters = payload.get("filters") if isinstance(payload.get("filters"), dict) else {}
-    max_nodes, max_edges = _graph_limits(payload, default_nodes=200, default_edges=3000, minimum_edges=100)
+    max_nodes, max_edges = _graph_limits(
+        payload, default_nodes=200, default_edges=3000, minimum_edges=100
+    )
 
-    type_values = _graph_filter_values(filters, "type")
-    state_values = _graph_filter_values(filters, "state")
-    project_values = _graph_filter_values(filters, "projects")
-    tag_values = _graph_filter_values(filters, "tags")
+    type_values = _graph_filter_values(filters or {}, "type")
+    tag_values = _graph_filter_values(filters or {}, "tags")
 
-    store = MemoryRepository(get_config().memory_dir)
-    all_learnings = sorted(store.list_all(), key=lambda item: item.updated, reverse=True)
-    selected = _filter_learnings(
-        all_learnings,
+    all_items = _load_all_memories()
+    selected = _filter_memories(
+        all_items,
         query=query,
         type_filter=type_values[0] if type_values else None,
-        state_filter=state_values[0] if state_values else None,
-        project_filter=project_values[0] if project_values else None,
+        state_filter=None,
+        project_filter=None,
     )
 
     if type_values:
-        allowed = set(type_values)
-        selected = [item for item in selected if item.primitive.value in allowed]
-    if state_values:
-        allowed = set(state_values)
-        selected = [item for item in selected if item.lifecycle_state.value in allowed]
-    if project_values:
-        allowed = set(project_values)
-        selected = [item for item in selected if allowed.intersection(item.projects)]
+        allowed_types = set(type_values)
+        selected = [
+            item for item in selected if _detect_primitive(item) in allowed_types
+        ]
     if tag_values:
-        allowed = set(tag_values)
-        selected = [item for item in selected if allowed.intersection(item.tags)]
+        allowed_tags = set(tag_values)
+        selected = [
+            item for item in selected if allowed_tags.intersection(item.get("tags", []))
+        ]
 
     matched_memories = len(selected)
     return _build_memory_graph_payload(
@@ -508,9 +553,11 @@ def _memory_graph_query(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _memory_graph_expand(payload: dict[str, Any]) -> dict[str, Any]:
-    """Expand one memory node by related/tag/project neighborhood."""
+    """Expand one memory node by related/tag neighborhood."""
     node_id = str(payload.get("node_id") or "")
-    max_nodes, max_edges = _graph_limits(payload, default_nodes=500, default_edges=1200, minimum_edges=50)
+    max_nodes, max_edges = _graph_limits(
+        payload, default_nodes=500, default_edges=1200, minimum_edges=50
+    )
     if not node_id.startswith("mem:"):
         return {
             "nodes": [],
@@ -519,8 +566,8 @@ def _memory_graph_expand(payload: dict[str, Any]) -> dict[str, Any]:
             "warnings": ["Only memory node expansion is supported in this build."],
         }
     memory_id = node_id.split("mem:", 1)[1]
-    store = MemoryRepository(get_config().memory_dir)
-    seed = store.read(memory_id)
+    all_items = _load_all_memories()
+    seed = next((fm for fm in all_items if str(fm.get("id", "")) == memory_id), None)
     if seed is None:
         return {
             "nodes": [],
@@ -529,23 +576,24 @@ def _memory_graph_expand(payload: dict[str, Any]) -> dict[str, Any]:
             "warnings": ["Selected memory no longer exists."],
         }
 
-    all_items = sorted(store.list_all(), key=lambda item: item.updated, reverse=True)
-    neighbor_ids: set[str] = {seed.id}
-    seed_projects = set(seed.projects)
-    seed_tags = set(seed.tags)
-    for item in all_items:
-        if item.id == seed.id:
+    neighbor_ids: set[str] = {memory_id}
+    seed_tags = set(seed.get("tags", []))
+    for fm in all_items:
+        fid = str(fm.get("id", ""))
+        if fid == memory_id:
             continue
-        if seed_projects.intersection(item.projects) or seed_tags.intersection(item.tags):
-            neighbor_ids.add(item.id)
+        if seed_tags.intersection(fm.get("tags", [])):
+            neighbor_ids.add(fid)
 
-    for source_id, target_id, _reason, _score in _load_memory_graph_edges(seed_memory_id=seed.id, limit=500):
-        if source_id == seed.id and target_id:
+    for source_id, target_id, _reason, _score in _load_memory_graph_edges(
+        seed_memory_id=memory_id, limit=500
+    ):
+        if source_id == memory_id and target_id:
             neighbor_ids.add(target_id)
-        if target_id == seed.id and source_id:
+        if target_id == memory_id and source_id:
             neighbor_ids.add(source_id)
 
-    focused = [item for item in all_items if item.id in neighbor_ids]
+    focused = [fm for fm in all_items if str(fm.get("id", "")) in neighbor_ids]
     graph = _build_memory_graph_payload(
         selected=focused[:max_nodes],
         matched_memories=len(focused),
@@ -604,7 +652,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _serve_file(self, relative_path: str) -> None:
         """Serve static dashboard asset with directory traversal protection."""
         path = (DASHBOARD_DIR / relative_path.lstrip("/")).resolve()
-        if not str(path).startswith(str(DASHBOARD_DIR.resolve())) or not path.exists() or not path.is_file():
+        if (
+            not str(path).startswith(str(DASHBOARD_DIR.resolve()))
+            or not path.exists()
+            or not path.is_file()
+        ):
             self._error(HTTPStatus.NOT_FOUND, "Not found")
             return
         content_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
@@ -627,8 +679,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         """Return paginated run list for selected scope and agent filter."""
         scope = (query.get("scope") or ["week"])[0]
         agent = (query.get("agent_type") or ["all"])[0]
-        limit = _parse_int((query.get("limit") or ["30"])[0], 30, minimum=1, maximum=200)
-        offset = _parse_int((query.get("offset") or ["0"])[0], 0, minimum=0, maximum=10_000)
+        limit = _parse_int(
+            (query.get("limit") or ["30"])[0], 30, minimum=1, maximum=200
+        )
+        offset = _parse_int(
+            (query.get("offset") or ["0"])[0], 0, minimum=0, maximum=10_000
+        )
         since, until = _scope_bounds(scope)
         rows, total = list_sessions_window(
             limit=limit,
@@ -657,8 +713,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         agent = (query.get("agent_type") or ["all"])[0]
         status_filter = (query.get("status") or [""])[0].strip()
         repo_filter = (query.get("repo") or [""])[0].strip()
-        limit = _parse_int((query.get("limit") or ["30"])[0], 30, minimum=1, maximum=200)
-        offset = _parse_int((query.get("offset") or ["0"])[0], 0, minimum=0, maximum=10_000)
+        limit = _parse_int(
+            (query.get("limit") or ["30"])[0], 30, minimum=1, maximum=200
+        )
+        offset = _parse_int(
+            (query.get("offset") or ["0"])[0], 0, minimum=0, maximum=10_000
+        )
         since, until = _scope_bounds(scope)
         where = []
         params: list[Any] = []
@@ -685,22 +745,33 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "d.tool_call_count, d.error_count, d.total_tokens, d.repo_name, d.summary_text, "
                     "snippet(sessions_fts, 3, '<mark>', '</mark>', '...', 24) AS snippet "
                     "FROM sessions_fts JOIN session_docs d ON d.id = sessions_fts.rowid "
-                    "WHERE sessions_fts MATCH ?" + where_sql + " ORDER BY d.start_time DESC LIMIT ? OFFSET ?"
+                    "WHERE sessions_fts MATCH ?"
+                    + where_sql
+                    + " ORDER BY d.start_time DESC LIMIT ? OFFSET ?"
                 )
-                rows = conn.execute(search_sql, [run_query, *params, limit, offset]).fetchall()
+                rows = conn.execute(
+                    search_sql, [run_query, *params, limit, offset]
+                ).fetchall()
                 count_sql = (
                     "SELECT COUNT(1) AS total FROM sessions_fts JOIN session_docs d ON d.id = sessions_fts.rowid "
                     "WHERE sessions_fts MATCH ?" + where_sql
                 )
-                total = int(conn.execute(count_sql, [run_query, *params]).fetchone()["total"] or 0)
+                total = int(
+                    conn.execute(count_sql, [run_query, *params]).fetchone()["total"]
+                    or 0
+                )
             else:
                 search_sql = (
                     "SELECT d.run_id, d.agent_type, d.status, d.start_time, d.duration_ms, d.message_count, "
                     "d.tool_call_count, d.error_count, d.total_tokens, d.repo_name, d.summary_text, d.summary_text AS snippet "
-                    "FROM session_docs d WHERE 1=1" + where_sql + " ORDER BY d.start_time DESC LIMIT ? OFFSET ?"
+                    "FROM session_docs d WHERE 1=1"
+                    + where_sql
+                    + " ORDER BY d.start_time DESC LIMIT ? OFFSET ?"
                 )
                 rows = conn.execute(search_sql, [*params, limit, offset]).fetchall()
-                count_sql = "SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1" + where_sql
+                count_sql = (
+                    "SELECT COUNT(1) AS total FROM session_docs d WHERE 1=1" + where_sql
+                )
                 total = int(conn.execute(count_sql, params).fetchone()["total"] or 0)
         results = []
         for row in rows:
@@ -731,14 +802,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _api_memories(self, query: dict[str, list[str]]) -> None:
         """Return filtered memory list for dashboard memory explorer."""
-        config = get_config()
-        store = MemoryRepository(config.memory_dir)
-        all_items = sorted(store.list_all(), key=lambda item: item.updated, reverse=True)
+        all_items = _load_all_memories()
         query_text = (query.get("query") or [""])[0].strip()
         type_filter = (query.get("type") or [""])[0].strip()
         state_filter = (query.get("state") or [""])[0].strip()
         project_filter = (query.get("project") or [""])[0].strip()
-        items = _filter_learnings(
+        items = _filter_memories(
             all_items,
             query=query_text,
             type_filter=type_filter or None,
@@ -747,7 +816,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         )
         self._json(
             {
-                "items": [_serialize_learning(item, with_body=False) for item in items[:300]],
+                "items": [
+                    _serialize_memory(item, with_body=False) for item in items[:300]
+                ],
                 "total": len(items),
                 "summary": f"{len(items)} memories",
             }
@@ -755,20 +826,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _api_memory_detail(self, path: str) -> None:
         """Return full memory details for one memory id."""
-        config = get_config()
         memory_id = unquote(path.split("/api/memories/", 1)[1])
-        store = MemoryRepository(config.memory_dir)
-        learning = store.read(memory_id)
-        if learning is None:
+        all_items = _load_all_memories()
+        fm = next(
+            (item for item in all_items if str(item.get("id", "")) == memory_id), None
+        )
+        if fm is None:
             self._error(HTTPStatus.NOT_FOUND, "Memory not found")
             return
-        self._json({"memory": _serialize_learning(learning, with_body=True)})
+        self._json({"memory": _serialize_memory(fm, with_body=True)})
 
     def _api_memory_graph_options(self) -> None:
         """Return memory-graph filter option lists."""
-        config = get_config()
-        store = MemoryRepository(config.memory_dir)
-        self._json(_memory_graph_options(store.list_all()))
+        self._json(_memory_graph_options(_load_all_memories()))
 
     def _api_refine_status(self) -> None:
         """Return queue and recent run status for refine panel."""
@@ -783,7 +853,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         """Return cached or freshly built extraction quality report."""
         now = datetime.now(timezone.utc)
         cached_at = _REPORT_CACHE.get("at")
-        if isinstance(cached_at, datetime) and _REPORT_CACHE.get("value") and (now - cached_at).total_seconds() < 60:
+        if (
+            isinstance(cached_at, datetime)
+            and _REPORT_CACHE.get("value")
+            and (now - cached_at).total_seconds() < 60
+        ):
             self._json(_REPORT_CACHE["value"])
             return
         try:
@@ -819,7 +893,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         config = get_config()
         provider = (query.get("provider") or [config.provider])[0]
         provider_config = get_provider_config(provider)
-        models = sorted(set([provider_config.default_model, *provider_config.model_mappings.values()]))
+        models = sorted(
+            set(
+                [
+                    provider_config.default_model,
+                    *provider_config.model_mappings.values(),
+                ]
+            )
+        )
         self._json({"models": models})
 
     def _handle_api_get(self, path: str, query: dict[str, list[str]]) -> None:

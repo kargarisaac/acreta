@@ -10,13 +10,11 @@ import json
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import dspy
 from pydantic import BaseModel, Field
 
-from acreta.memory.memory_record import LearningType
-from acreta.memory.memory_record import MemoryType
 from acreta.memory.utils import configure_dspy_lm, env_positive_int
 from acreta.sessions import catalog as session_db
 
@@ -24,33 +22,57 @@ from acreta.sessions import catalog as session_db
 class MemoryCandidate(BaseModel):
     """One extracted memory candidate from a transcript."""
 
-    primitive: MemoryType = Field(description="Memory type: decision or learning.")
-    learning_type: LearningType | None = Field(
+    primitive: Literal["decision", "learning"] = Field(
+        description="Memory type: decision or learning. Never summary."
+    )
+    kind: str | None = Field(
         default=None,
-        description="Subtype taxonomy. Use friction for blockers/struggles. Usually set when primitive=learning.",
+        description="Subtype: insight, procedure, friction, pitfall, or preference. Usually set when primitive=learning.",
     )
     title: str = Field(description="Short memory title.")
     body: str = Field(description="Memory content in plain language.")
-    confidence: float | None = Field(default=None, ge=0.0, le=1.0, description="Confidence score from 0 to 1.")
+    confidence: float | None = Field(
+        default=None, ge=0.0, le=1.0, description="Confidence score from 0 to 1."
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Group/cluster labels for this memory. No limit.",
+    )
 
 
 class MemoryExtractSignature(dspy.Signature):
     """Extract reusable memory candidates from transcript text.
 
+    Primitive type rules (must be consistent):
+    - decision: an explicit choice, preference, or configuration that should stay stable.
+      Trigger words: "decision", "we will", "use X not Y", "always do", "never do", "set X to Y".
+    - learning: a lesson, fix, pattern, or friction signal learned from experience.
+      Trigger words: "lesson", "fix", "found that", "struggled with", "wasted time on".
+    - When in doubt, prefer learning. Only use decision when the transcript contains
+      a clear deliberate choice or a stated configuration value.
+
+    Kind (for learnings only):
+    - insight: a reusable observation or pattern.
+    - procedure: a step-by-step fix or workflow.
+    - friction: a blocker, struggle, or time-waster.
+    - pitfall: a mistake to avoid.
+    - preference: a soft preference (not a hard decision).
+
+    Tags: assign descriptive group/cluster labels for categorization. No limit on count.
+    Examples: queue, heartbeat, docker, ci-cd, patching, error-handling.
+
     Focus on high-value items:
     - repeated struggles and blockers
     - lessons and fixes that worked
     - decisions to reuse later
-    - practical context embedded as learning tags
-
-    Use Acreta memory type values exactly: decision, learning.
-    For struggle/blocker memories, use primitive=learning and learning_type=friction.
     """
 
     transcript: str = dspy.InputField(desc="Raw transcript text")
     metadata: dict[str, Any] = dspy.InputField(desc="Session metadata")
     metrics: dict[str, Any] = dspy.InputField(desc="Deterministic metrics")
-    primitives: list[MemoryCandidate] = dspy.OutputField(desc="Extracted memory candidate list")
+    primitives: list[MemoryCandidate] = dspy.OutputField(
+        desc="Extracted memory candidate list"
+    )
 
 
 def _extract_candidates_with_rlm(
@@ -80,7 +102,9 @@ def _extract_candidates_with_rlm(
     if not isinstance(primitives, list):
         return []
     return [
-        item.model_dump(mode="json", exclude_none=True) if isinstance(item, MemoryCandidate) else item
+        item.model_dump(mode="json", exclude_none=True)
+        if isinstance(item, MemoryCandidate)
+        else item
         for item in primitives
         if isinstance(item, (MemoryCandidate, dict))
     ]
@@ -125,7 +149,14 @@ def build_extract_report(
         "window_end": window_end.isoformat() if window_end else None,
         "agent_filter": ",".join(agent_types) if agent_types else "all",
         "aggregates": {"totals": dict(totals)},
-        "narratives": {"at_a_glance": {"working": "", "hindering": "", "quick_wins": "", "horizon": ""}},
+        "narratives": {
+            "at_a_glance": {
+                "working": "",
+                "hindering": "",
+                "quick_wins": "",
+                "horizon": "",
+            }
+        },
     }
 
 
@@ -180,25 +211,32 @@ if __name__ == "__main__":
             )
         assert candidates, "self-test failed: no candidates extracted"
 
-        learning_type_values = {item.value for item in LearningType}
         quality_hits = 0
         for item in candidates:
             assert isinstance(item, dict), "self-test failed: candidate must be dict"
             primitive = str(item.get("primitive") or "").strip()
             title = str(item.get("title") or "").strip()
             body = str(item.get("body") or "").strip()
-            learning_type = item.get("learning_type")
 
-            assert primitive in {"decision", "learning"}, f"self-test failed: invalid primitive={primitive!r}"
+            assert primitive in {"decision", "learning"}, (
+                f"self-test failed: invalid primitive={primitive!r}"
+            )
             assert len(title) >= 8, "self-test failed: title too short"
             assert len(body) >= 24, "self-test failed: body too short"
-            if learning_type is not None:
-                assert str(learning_type) in learning_type_values, (
-                    f"self-test failed: invalid learning_type={learning_type!r}"
-                )
 
             text_blob = f"{title} {body}".lower()
-            if any(keyword in text_blob for keyword in ("heartbeat", "dead_letter", "file path", "retry", "friction")):
+            if any(
+                keyword in text_blob
+                for keyword in (
+                    "heartbeat",
+                    "dead_letter",
+                    "file path",
+                    "retry",
+                    "friction",
+                )
+            ):
                 quality_hits += 1
 
-        assert quality_hits >= 1, "self-test failed: extracted memories miss expected session signals"
+        assert quality_hits >= 1, (
+            "self-test failed: extracted memories miss expected session signals"
+        )

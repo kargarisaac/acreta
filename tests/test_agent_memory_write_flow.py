@@ -46,45 +46,53 @@ def _fake_sdk_run_factory(
         hooks=None,
         agents=None,
     ):
-        _ = (session_id, cwd, allowed_tools, permission_mode, add_dirs, env, hooks, agents)
+        _ = (
+            session_id,
+            cwd,
+            allowed_tools,
+            permission_mode,
+            add_dirs,
+            env,
+            hooks,
+            agents,
+        )
         artifacts = _extract_artifacts_from_prompt(prompt)
         memory_root = _extract_memory_root_from_prompt(prompt)
         idx = min(calls["index"], len(count_sequence) - 1)
         counts = count_sequence[idx]
         calls["index"] += 1
 
-        Path(artifacts["extract"]).write_text(json.dumps(candidates, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+        Path(artifacts["extract"]).write_text(
+            json.dumps(candidates, ensure_ascii=True, indent=2) + "\n", encoding="utf-8"
+        )
+        summary_memory_path = (
+            memory_root / "summaries" / f"summary--s20260220{calls['index']:04d}.md"
+        )
+        summary_memory_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_memory_path.write_text(
+            "---\nid: s202602200001\ntitle: Summary\n---\nSummary body\n",
+            encoding="utf-8",
+        )
         Path(artifacts["summary"]).write_text(
             json.dumps(
-                {
-                    "title": "Run summary",
-                    "description": "Session summary",
-                    "summary": "Summary body",
-                    "date": "2026-02-20",
-                    "time": "12:00:00",
-                    "coding_agent": "codex",
-                    "raw_trace_path": "/tmp/trace.jsonl",
-                    "run_id": "run-1",
-                    "repo_name": "acreta",
-                },
-                ensure_ascii=True,
-                indent=2,
+                {"summary_path": str(summary_memory_path)}, ensure_ascii=True, indent=2
             )
             + "\n",
             encoding="utf-8",
         )
         Path(artifacts["subagents_log"]).write_text(
             json.dumps(
-                {"candidate_id": 0, "action_hint": "add", "matched_file": "", "evidence": "no strong match"},
+                {
+                    "candidate_id": 0,
+                    "action_hint": "add",
+                    "matched_file": "",
+                    "evidence": "no strong match",
+                },
                 ensure_ascii=True,
             )
             + "\n",
             encoding="utf-8",
         )
-
-        summary_memory_path = memory_root / "summaries" / f"summary--s20260220{calls['index']:04d}.md"
-        summary_memory_path.parent.mkdir(parents=True, exist_ok=True)
-        summary_memory_path.write_text("---\nid: s202602200001\ntitle: Summary\n---\nSummary body\n", encoding="utf-8")
 
         report = {
             "run_id": f"run-{calls['index']}",
@@ -95,7 +103,9 @@ def _fake_sdk_run_factory(
             "summary_path": str(summary_memory_path),
             "trace_path": "/tmp/trace.jsonl",
         }
-        Path(artifacts["memory_actions"]).write_text(json.dumps(report, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+        Path(artifacts["memory_actions"]).write_text(
+            json.dumps(report, ensure_ascii=True, indent=2) + "\n", encoding="utf-8"
+        )
         return "ok", "session-1"
 
     return _fake_run
@@ -120,7 +130,7 @@ def test_agent_run_writes_summary_to_summaries_folder(monkeypatch, tmp_path) -> 
     )
 
     agent = AcretaAgent(default_cwd=str(tmp_path))
-    result = agent.run(trace_path, run_mode="sync")
+    result = agent.run(trace_path)
 
     assert result["counts"]["add"] == 1
     assert result["counts"]["update"] == 0
@@ -146,13 +156,16 @@ def test_agent_run_marks_duplicate_candidate_as_no_op(monkeypatch, tmp_path) -> 
                     "confidence": 0.9,
                 }
             ],
-            run_counts=[{"add": 1, "update": 0, "no_op": 0}, {"add": 0, "update": 0, "no_op": 1}],
+            run_counts=[
+                {"add": 1, "update": 0, "no_op": 0},
+                {"add": 0, "update": 0, "no_op": 1},
+            ],
         ),
     )
 
     agent = AcretaAgent(default_cwd=str(tmp_path))
-    first = agent.run(trace_path, run_mode="sync")
-    second = agent.run(trace_path, run_mode="sync")
+    first = agent.run(trace_path)
+    second = agent.run(trace_path)
 
     assert first["counts"]["add"] == 1
     assert second["counts"]["no_op"] == 1
