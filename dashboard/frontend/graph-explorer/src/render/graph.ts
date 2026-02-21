@@ -23,8 +23,6 @@ const EDGE_COLOR: Record<string, string> = {
   in_project: "rgba(245, 158, 11, 0.55)",
   tagged: "rgba(167, 139, 250, 0.5)",
   typed_as: "rgba(251, 113, 133, 0.48)",
-  version_of: "rgba(34, 197, 94, 0.5)",
-  supersedes: "rgba(248, 113, 113, 0.52)",
 };
 
 const KIND_SHAPE: Record<string, string> = {
@@ -154,12 +152,6 @@ export class GraphRenderer {
             "font-weight": 600,
             "text-max-width": 220,
             "border-color": "rgba(103, 232, 249, 0.82)",
-          },
-        },
-        {
-          selector: "node.session",
-          style: {
-            "border-color": "rgba(147, 197, 253, 0.82)",
           },
         },
         {
@@ -591,8 +583,6 @@ export class GraphRenderer {
         return 182;
       },
       edgeElasticity: (edge: { data: (key: string) => unknown }) => {
-        const kind = String(edge.data("kind") || "");
-        if (kind === "version_of" || kind === "supersedes") return 0.4;
         return 0.16;
       },
       nestingFactor: 0.82,

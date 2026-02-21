@@ -131,8 +131,8 @@ Global fallback scope:
 
 ## Primitive frontmatter (lean)
 
-- `decision`: `id,title,status,decided_by,tags,related,created,updated`
-- `learning`: `id,title,kind,tags,related,created,updated`
+- `decision`: `id,title,created,updated,source,confidence,tags,related`
+- `learning`: `id,title,created,updated,source,confidence,tags,related,kind`
 - `summary`: `id,title,description,date,time,coding_agent,raw_trace_path,run_id,repo_name,related,created,updated`
 
 All metadata lives in frontmatter — no sidecars.

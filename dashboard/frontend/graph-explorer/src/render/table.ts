@@ -71,7 +71,7 @@ export class TableRenderer {
       if (this.selectedNodeIds.has(row.id)) tr.classList.add("is-selected");
       const tags = valueAsText(row.properties?.tags ?? []);
       const type = valueAsText(row.properties?.kind ?? "");
-      const state = valueAsText(row.properties?.lifecycle_state ?? "");
+      const state = valueAsText(row.properties?.kind ?? "");
       tr.innerHTML = `
         <td class="agx-col-check">
           <input type="checkbox" data-role="select-row" ${this.selectedNodeIds.has(row.id) ? "checked" : ""} />

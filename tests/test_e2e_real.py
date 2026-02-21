@@ -93,11 +93,7 @@ def test_extract_pipeline_end_to_end_without_network(tmp_path: Path, monkeypatch
                     "body": "Keep enqueue, claim, heartbeat, complete, and fail states consistent.",
                     "confidence": 0.9,
                     "kind": "pattern",
-                    "related": ["queue-lifecycle"],
-                    "projects": ["acreta"],
-                    "agent_types": ["codex"],
-                    "signal_sources": ["user_agent", "tool_runtime"],
-                    "evidence": [],
+                    "tags": ["queue-lifecycle"],
                 }
             ],
         )

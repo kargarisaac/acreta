@@ -582,7 +582,7 @@ def build_parser() -> argparse.ArgumentParser:
     memory_add.add_argument(
         "--kind",
         default="insight",
-        help="Learning kind: insight, procedure, friction, pitfall, preference",
+        help="Memory kind: insight, procedure, friction, pitfall, preference",
     )
     memory_add.add_argument("--confidence", type=float, default=0.7)
     memory_add.add_argument("--tags")

@@ -98,5 +98,5 @@ Memory scope modes:
 Security boundary for memory-write flow:
 
 - `permission_mode` is not `bypassPermissions`
-- `PreToolUse` hook denies `Write|Edit` outside `memory_root` and current run folder
+- `PreToolUse` hook denies `Write|Edit` outside `memory_root` and current run folder. The PreToolUse boundary guard covers Write/Edit calls only. Bash is allowed for pipeline execution and is not subject to path containment. The agent is trusted within its SDK session.
 - subagent exploration stays read-only (`Explore` first; fallback `explore-reader` with `Read|Grep|Glob`)

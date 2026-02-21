@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import argparse
 import io
+import os
 from contextlib import redirect_stdout
 from dataclasses import replace
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -63,8 +66,17 @@ def test_removed_command_rejected() -> None:
     assert exc.value.code == 2
 
 
-def test_status_json_output_shape() -> None:
-    code, payload = run_cli_json(["status", "--json"])
+def test_status_json_output_shape(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from acreta.config import reload_config
+    env = {
+        "ACRETA_DATA_DIR": str(tmp_path),
+        "ACRETA_MEMORY_DIR": str(tmp_path / "memory"),
+        "ACRETA_INDEX_DIR": str(tmp_path / "index"),
+        "ACRETA_SESSIONS_DB": str(tmp_path / "index" / "sessions.sqlite3"),
+    }
+    with patch.dict(os.environ, env, clear=False):
+        reload_config()
+        code, payload = run_cli_json(["status", "--json"])
     assert code == 0
     assert "queue" in payload
     assert "latest_sync" in payload
