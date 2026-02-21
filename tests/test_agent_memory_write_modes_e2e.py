@@ -119,7 +119,7 @@ def test_sync_flow_contract(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     monkeypatch.setattr(AcretaAgent, "_run_sdk_once", _fake_sdk_run_factory())
 
     agent = AcretaAgent(default_cwd=str(tmp_path))
-    sync = agent.run(trace_path)
+    sync = agent.sync(trace_path)
 
     assert Path(sync["run_folder"]).name.startswith("sync-")
     assert sync["counts"]["add"] == 1

@@ -8,11 +8,12 @@ import json
 
 import pytest
 
-from acreta.runtime.agent import AcretaAgent, _build_system_prompt
+from acreta.runtime.agent import AcretaAgent
+from acreta.runtime.prompts import build_system_prompt
 
 
 def test_system_prompt_enforces_parallel_explorer_contract() -> None:
-    prompt = _build_system_prompt(["acreta"])
+    prompt = build_system_prompt(["acreta"])
     assert "Task with Explore subagent" in prompt
     assert "add, update, or no-op" in prompt
     assert "project-first, then global fallback" in prompt
@@ -121,7 +122,7 @@ def test_memory_write_run_contract_creates_workspace_folder(tmp_path) -> None:
 
     agent = AcretaAgent(default_cwd=str(tmp_path))
     agent._run_sdk_once = _fake_run_sdk_once.__get__(agent, AcretaAgent)
-    result = agent.run(trace_path)
+    result = agent.sync(trace_path)
 
     assert result["trace_path"] == str(trace_path.resolve())
     assert Path(result["run_folder"]).exists()
@@ -132,7 +133,7 @@ def test_memory_write_run_contract_creates_workspace_folder(tmp_path) -> None:
 def test_memory_write_run_contract_fails_fast_on_missing_trace(tmp_path) -> None:
     agent = AcretaAgent(default_cwd=str(tmp_path))
     with pytest.raises(FileNotFoundError):
-        agent.run(tmp_path / "missing.jsonl")
+        agent.sync(tmp_path / "missing.jsonl")
 
 
 def test_memory_write_prompt_uses_trace_path_not_trace_content(tmp_path) -> None:
@@ -149,8 +150,9 @@ def test_memory_write_prompt_uses_trace_path_not_trace_content(tmp_path) -> None
         "session_log": run_folder / "session.log",
     }
 
-    agent = AcretaAgent(default_cwd=str(tmp_path))
-    prompt = agent._build_memory_write_prompt(
+    from acreta.runtime.prompts import build_sync_prompt
+
+    prompt = build_sync_prompt(
         trace_file=trace_path,
         memory_root=tmp_path / "memory",
         run_folder=run_folder,

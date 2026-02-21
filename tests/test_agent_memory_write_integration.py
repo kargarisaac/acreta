@@ -98,7 +98,7 @@ def test_memory_write_sync_artifacts_and_summary_path(
     monkeypatch.setattr(AcretaAgent, "_run_sdk_once", _fake_run_sdk_once)
 
     agent = AcretaAgent(default_cwd=str(tmp_path))
-    result = agent.run(trace_path)
+    result = agent.sync(trace_path)
 
     assert Path(result["artifacts"]["extract"]).exists()
     assert Path(result["artifacts"]["summary"]).exists()

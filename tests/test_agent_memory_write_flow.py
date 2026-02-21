@@ -130,7 +130,7 @@ def test_agent_run_writes_summary_to_summaries_folder(monkeypatch, tmp_path) -> 
     )
 
     agent = AcretaAgent(default_cwd=str(tmp_path))
-    result = agent.run(trace_path)
+    result = agent.sync(trace_path)
 
     assert result["counts"]["add"] == 1
     assert result["counts"]["update"] == 0
@@ -164,8 +164,8 @@ def test_agent_run_marks_duplicate_candidate_as_no_op(monkeypatch, tmp_path) -> 
     )
 
     agent = AcretaAgent(default_cwd=str(tmp_path))
-    first = agent.run(trace_path)
-    second = agent.run(trace_path)
+    first = agent.sync(trace_path)
+    second = agent.sync(trace_path)
 
     assert first["counts"]["add"] == 1
     assert second["counts"]["no_op"] == 1

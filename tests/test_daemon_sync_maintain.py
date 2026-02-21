@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 from acreta.app import daemon
-from acreta.app.arg_utils import (
-    parse_agent_filter,
-    parse_csv,
-    parse_duration_to_seconds,
-)
 from acreta.config.settings import reload_config
 from acreta.sessions import catalog
 
 
 def _setup(tmp_path, monkeypatch, *, enable_vectors: bool = False) -> None:
+    """Set up test environment with tmp dirs and config."""
     monkeypatch.setenv("ACRETA_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("ACRETA_MEMORY_DIR", str(tmp_path / "memory"))
     monkeypatch.setenv("ACRETA_INDEX_DIR", str(tmp_path / "index"))
@@ -26,6 +22,7 @@ def _setup(tmp_path, monkeypatch, *, enable_vectors: bool = False) -> None:
 
 
 def test_sync_does_not_run_vector_rebuild(monkeypatch, tmp_path) -> None:
+    """Sync flow does not trigger vector rebuild side-effects."""
     _setup(tmp_path, monkeypatch, enable_vectors=True)
     session_path = tmp_path / "sessions" / "run-sync-1.jsonl"
     session_path.parent.mkdir(parents=True, exist_ok=True)
@@ -38,7 +35,7 @@ def test_sync_does_not_run_vector_rebuild(monkeypatch, tmp_path) -> None:
     )
 
     monkeypatch.setattr(
-        "acreta.runtime.agent.AcretaAgent.run",
+        "acreta.runtime.agent.AcretaAgent.sync",
         lambda *_args, **_kwargs: {
             "counts": {"add": 1, "update": 0, "no_op": 0},
         },
@@ -65,29 +62,24 @@ def test_sync_does_not_run_vector_rebuild(monkeypatch, tmp_path) -> None:
     assert "vectors_error" not in latest["details"]
 
 
-def test_maintain_runs_requested_steps(monkeypatch, tmp_path) -> None:
-    _setup(tmp_path, monkeypatch, enable_vectors=True)
-    calls: list[str] = []
-
-    def _capture_step(step: str, **_kwargs):
-        calls.append(step)
-        return None
-
-    monkeypatch.setattr(daemon, "_run_maintain_step", _capture_step)
-
-    code, payload = daemon.run_maintain_once(
-        window="30d",
-        since_raw=None,
-        until_raw=None,
-        steps_raw=None,
-        agent_raw=None,
-        force=False,
-        dry_run=False,
-        parse_duration_to_seconds=parse_duration_to_seconds,
-        parse_csv=parse_csv,
-        parse_agent_filter=parse_agent_filter,
+def test_maintain_calls_agent(monkeypatch, tmp_path) -> None:
+    """Maintain flow calls AcretaAgent.maintain() and returns result."""
+    _setup(tmp_path, monkeypatch)
+    called = []
+    monkeypatch.setattr(
+        "acreta.runtime.agent.AcretaAgent.maintain",
+        lambda self, **kw: (
+            called.append(True),
+            {
+                "counts": {
+                    "merged": 0,
+                    "archived": 0,
+                    "consolidated": 0,
+                    "unchanged": 0,
+                }
+            },
+        )[1],
     )
-
+    code, payload = daemon.run_maintain_once(force=False, dry_run=False)
     assert code == daemon.EXIT_OK
-    assert payload["partial"] is False
-    assert calls == ["consolidate", "decay", "report"]
+    assert len(called) == 1
