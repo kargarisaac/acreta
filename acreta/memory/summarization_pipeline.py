@@ -1,12 +1,13 @@
 """Trace summarization pipeline that outputs markdown-frontmatter-ready metadata + summary.
 
 When --memory-root is provided, the pipeline writes the summary markdown file
-directly to memory_root/summaries/{date}-{slug}.md using python-frontmatter.
+directly to memory_root/summaries/YYYYMMDD/HHMMSS/{slug}.md using python-frontmatter.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,7 @@ import dspy
 import frontmatter
 from pydantic import BaseModel, Field
 
-from acreta.memory.memory_record import canonical_memory_filename, slugify
+from acreta.memory.memory_record import slugify
 from acreta.memory.utils import configure_dspy_lm, env_positive_int
 from acreta.sessions import catalog as session_db
 
@@ -105,7 +106,7 @@ def write_summary_markdown(
     *,
     run_id: str = "",
 ) -> Path:
-    """Write summary markdown with frontmatter to memory_root/summaries/{date}-{slug}.md."""
+    """Write summary markdown with frontmatter to memory_root/summaries/YYYYMMDD/HHMMSS/{slug}.md."""
     title = str(payload.get("title") or "untitled")
     summary_body = str(payload.get("summary") or "")
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -125,13 +126,15 @@ def write_summary_markdown(
         "tags": payload.get("tags", []),
     }
 
-    filename = canonical_memory_filename(
-        title=title,
-        run_id=run_id,
-    )
-    summaries_dir = memory_root / "summaries"
+    slug = slugify(title)
+    date_compact = re.sub(r"[^0-9]", "", str(payload.get("date", now_iso[:10])))[:8]
+    time_compact = re.sub(r"[^0-9]", "", str(payload.get("time", now_iso[11:19])))[:6]
+    if len(date_compact) != 8 or len(time_compact) != 6:
+        date_compact = datetime.now(timezone.utc).strftime("%Y%m%d")
+        time_compact = datetime.now(timezone.utc).strftime("%H%M%S")
+    summaries_dir = memory_root / "summaries" / date_compact / time_compact
     summaries_dir.mkdir(parents=True, exist_ok=True)
-    summary_path = summaries_dir / filename
+    summary_path = summaries_dir / f"{slug}.md"
 
     post = frontmatter.Post(summary_body, **fm_dict)
     summary_path.write_text(frontmatter.dumps(post) + "\n", encoding="utf-8")

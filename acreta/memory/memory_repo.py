@@ -43,9 +43,14 @@ def build_memory_paths(data_dir: Path) -> MemoryPaths:
 
 def ensure_memory_paths(paths: MemoryPaths) -> None:
     """Create required canonical memory folders when missing."""
+    archive_types = (MemoryType.decision, MemoryType.learning)
     memory_paths = tuple(paths.memory_dir / memory_folder(item) for item in MemoryType)
+    archive_paths = tuple(
+        paths.memory_dir / "archived" / memory_folder(item) for item in archive_types
+    )
     for path in (
         *memory_paths,
+        *archive_paths,
         paths.workspace_dir,
         paths.index_dir,
     ):
@@ -85,6 +90,8 @@ if __name__ == "__main__":
         assert (paths.memory_dir / "decisions").exists()
         assert (paths.memory_dir / "learnings").exists()
         assert (paths.memory_dir / "summaries").exists()
+        assert (paths.memory_dir / "archived" / "decisions").exists()
+        assert (paths.memory_dir / "archived" / "learnings").exists()
         assert paths.workspace_dir.exists()
         assert paths.index_dir.exists()
 
