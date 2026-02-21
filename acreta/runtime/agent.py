@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import secrets
 import shlex
 from concurrent.futures import ThreadPoolExecutor
@@ -12,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import yaml
+import frontmatter
 
 from acreta.config.settings import get_config
 from acreta.runtime.providers import (
@@ -181,46 +180,32 @@ class AcretaAgent:
             Only handles decisions and learnings. Summaries are written
             directly by the summarization pipeline.
             """
-            # Detect which primitive folder: .../memory/decisions/foo.md
+            # Only allow .md writes inside recognized primitive folders
+            if not resolved.name.endswith(".md"):
+                return {"__deny": "memory_write_not_markdown"}
             parts = resolved.parts
             primitive_type: MemoryType | None = None
             for i, part in enumerate(parts):
                 if part in _folder_to_type and i > 0 and parts[i - 1] == "memory":
                     primitive_type = _folder_to_type[part]
                     break
-            if not primitive_type or not resolved.name.endswith(".md"):
-                return tool_input  # not a memory markdown file, pass through
+            if not primitive_type:
+                return {"__deny": "memory_write_outside_primitive_folder"}
 
             # Summaries are handled by pipeline, not agent
             if primitive_type == MemoryType.summary:
                 return tool_input
 
             content = str(tool_input.get("content", ""))
-            # Parse frontmatter if present
-            fm_match = re.match(r"^---\n(.+?\n)---\n(.*)", content, re.DOTALL)
-            if not fm_match:
-                return tool_input  # no frontmatter, let agent handle
-
-            fm_text, body = fm_match.group(1), fm_match.group(2)
+            # Parse frontmatter via python-frontmatter
             try:
-                fm = yaml.safe_load(fm_text)
-            except yaml.YAMLError:
-                # Try to fix common issue: unquoted colons in values
-                fixed_lines = []
-                for line in fm_text.splitlines():
-                    if ":" in line:
-                        key_sep = line.find(":")
-                        value = line[key_sep + 1 :].strip()
-                        if value and ":" in value and not value.startswith(("'", '"')):
-                            fixed_lines.append(f'{line[:key_sep]}: "{value}"')
-                            continue
-                    fixed_lines.append(line)
-                try:
-                    fm = yaml.safe_load("\n".join(fixed_lines))
-                except yaml.YAMLError:
-                    return tool_input  # can't fix, pass through
-            if not isinstance(fm, dict):
-                return tool_input
+                post = frontmatter.loads(content)
+            except Exception:
+                return {"__deny": "memory_write_unparseable_frontmatter"}
+            fm = post.metadata
+            if not isinstance(fm, dict) or not fm:
+                return {"__deny": "memory_write_missing_frontmatter"}
+            body = post.content
 
             # Ensure required fields
             title = str(fm.get("title", "")).strip() or resolved.stem
@@ -240,10 +225,8 @@ class AcretaAgent:
             fm = {k: fm[k] for k in allowed_keys if k in fm}
 
             # Rebuild content with normalized frontmatter
-            normalized_fm = yaml.dump(
-                fm, default_flow_style=False, sort_keys=False, allow_unicode=True
-            )
-            normalized_content = f"---\n{normalized_fm}---\n{body}"
+            normalized_post = frontmatter.Post(body, **fm)
+            normalized_content = frontmatter.dumps(normalized_post) + "\n"
 
             # Normalize filename
             canonical_name = canonical_memory_filename(title=title, run_id=run_id)
@@ -290,6 +273,14 @@ class AcretaAgent:
                 # Normalize if writing to a memory primitive folder
                 if in_memory:
                     updated_input = _normalize_memory_write(resolved, updated_input)
+                    if "__deny" in updated_input:
+                        return {
+                            "hookSpecificOutput": {
+                                "hookEventName": "PreToolUse",
+                                "permissionDecision": "deny",
+                                "permissionDecisionReason": updated_input["__deny"],
+                            }
+                        }
                 return {
                     "hookSpecificOutput": {
                         "hookEventName": "PreToolUse",
@@ -614,6 +605,8 @@ class AcretaAgent:
             raise RuntimeError(
                 f"summary_path_outside_allowed_roots:{summary_path_resolved}"
             )
+        if not summary_path_resolved.exists():
+            raise RuntimeError(f"summary_path_not_found:{summary_path_resolved}")
         summary_path = str(summary_path_resolved)
 
         return {
