@@ -166,34 +166,45 @@ class AcretaAgent:
             slugify,
         )
 
-        # Map folder names to primitive types for path detection
-        _folder_to_type: dict[str, MemoryType] = {
-            v: k for k, v in MEMORY_TYPE_FOLDERS.items()
-        }
         run_id = (metadata or {}).get("run_id", "")
+
+        # Build resolved primitive folder paths from memory_root
+        _primitive_dirs: dict[Path, MemoryType] = {}
+        if memory_root:
+            for mtype, folder in MEMORY_TYPE_FOLDERS.items():
+                _primitive_dirs[memory_root.resolve() / folder] = mtype
+
+        def _detect_primitive(resolved: Path) -> MemoryType | None:
+            """Detect which primitive type a path belongs to based on memory_root."""
+            for pdir, mtype in _primitive_dirs.items():
+                if self._is_within(resolved, pdir):
+                    return mtype
+            return None
 
         def _normalize_memory_write(
             resolved: Path, tool_input: dict[str, Any]
         ) -> dict[str, Any]:
             """Normalize filename and frontmatter for writes inside memory dirs.
 
-            Only handles decisions and learnings. Summaries are written
-            directly by the summarization pipeline.
+            Only handles decisions and learnings via Write tool.
+            Edit calls get boundary checks only (no frontmatter parsing).
+            Summaries are denied — only the pipeline may write them.
             """
-            # Only allow .md writes inside recognized primitive folders
             if not resolved.name.endswith(".md"):
                 return {"__deny": "memory_write_not_markdown"}
-            parts = resolved.parts
-            primitive_type: MemoryType | None = None
-            for i, part in enumerate(parts):
-                if part in _folder_to_type and i > 0 and parts[i - 1] == "memory":
-                    primitive_type = _folder_to_type[part]
-                    break
+
+            primitive_type = _detect_primitive(resolved)
             if not primitive_type:
                 return {"__deny": "memory_write_outside_primitive_folder"}
 
-            # Summaries are handled by pipeline, not agent
+            # Summaries must come from the pipeline, not the agent
             if primitive_type == MemoryType.summary:
+                return {"__deny": "summary_write_reserved_for_pipeline"}
+
+            # Edit tool sends old_string/new_string, not content — allow with
+            # boundary check only (file was validated on original Write)
+            is_edit = "old_string" in tool_input or "new_string" in tool_input
+            if is_edit:
                 return tool_input
 
             content = str(tool_input.get("content", ""))
