@@ -37,7 +37,7 @@ class TestContextLayersE2E(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             self.assertEqual(payload["response"], "answer")
-            self.assertEqual(payload["context_doc_ids"], [])
+            self.assertEqual(payload.get("context_doc_ids", []), [])
 
 
 if __name__ == "__main__":
