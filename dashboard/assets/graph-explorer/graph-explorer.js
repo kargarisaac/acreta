@@ -421,7 +421,7 @@ Consider installing the package or pass your own 'workerFactory' to ELK's constr
         </tr>
       </thead>
       <tbody></tbody>
-    `;const v=l.querySelector("tbody");if(v){for(const y of this.rows){const C=document.createElement("tr");C.dataset.nodeId=y.id,this.selectedNodeIds.has(y.id)&&C.classList.add("is-selected");const T=IJ(((p=y.properties)==null?void 0:p.tags)??[]),S=IJ(((m=y.properties)==null?void 0:m.learning_type)??""),A=IJ(((g=y.properties)==null?void 0:g.lifecycle_state)??"");C.innerHTML=`
+    `;const v=l.querySelector("tbody");if(v){for(const y of this.rows){const C=document.createElement("tr");C.dataset.nodeId=y.id,this.selectedNodeIds.has(y.id)&&C.classList.add("is-selected");const T=IJ(((p=y.properties)==null?void 0:p.tags)??[]),S=IJ(((m=y.properties)==null?void 0:m.kind)??""),A=IJ(((g=y.properties)==null?void 0:g.lifecycle_state)??"");C.innerHTML=`
         <td class="agx-col-check">
           <input type="checkbox" data-role="select-row" ${this.selectedNodeIds.has(y.id)?"checked":""} />
         </td>

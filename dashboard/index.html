@@ -892,7 +892,7 @@
                         <div class="memory-title" x-text="memory.title"></div>
                         <div class="memory-snippet" x-html="sanitizeSnippet(memory.snippet || memory.preview || '')"></div>
                         <div class="memory-meta">
-                          <span class="memory-chip" x-text="memory.learning_type"></span>
+                          <span class="memory-chip" x-text="memory.kind"></span>
                           <span class="memory-chip" x-text="memory.lifecycle_state"></span>
                           <span class="memory-chip" x-show="memory.projects && memory.projects.length" x-text="memory.projects[0]"></span>
                           <span class="memory-chip" x-show="memory.tags && memory.tags.length" x-text="'#' + memory.tags[0]"></span>
@@ -926,7 +926,7 @@
                     <div class="row g-2">
                       <div class="col-12 col-md-4">
                         <label class="form-label">Type</label>
-                        <select class="form-select" x-model="$store.memories.draft.learning_type" @change="markMemoryDirty()">
+                        <select class="form-select" x-model="$store.memories.draft.kind" @change="markMemoryDirty()">
                           <option value="pattern">Pattern</option>
                           <option value="convention">Convention</option>
                           <option value="pitfall">Pitfall</option>
@@ -2619,7 +2619,7 @@
             this.$store.memories.draft = {
               title: memory.title || '',
               body: memory.body || '',
-              learning_type: memory.learning_type || 'pattern',
+              kind: memory.kind || 'pattern',
               lifecycle_state: memory.lifecycle_state || 'candidate',
               confidence: memory.confidence || 0,
               occurrences: memory.occurrences || 1,
@@ -2648,7 +2648,7 @@
           this.$store.memories.draft = {
             title: memory.title || '',
             body: memory.body || '',
-            learning_type: memory.learning_type || 'pattern',
+            kind: memory.kind || 'pattern',
             lifecycle_state: memory.lifecycle_state || 'candidate',
             confidence: memory.confidence || 0,
             occurrences: memory.occurrences || 1,
@@ -2677,7 +2677,7 @@
             const payload = {
               title: this.$store.memories.draft.title,
               body: this.$store.memories.draft.body,
-              learning_type: this.$store.memories.draft.learning_type,
+              kind: this.$store.memories.draft.kind,
               lifecycle_state: this.$store.memories.draft.lifecycle_state,
               confidence: this.$store.memories.draft.confidence,
               occurrences: this.$store.memories.draft.occurrences,

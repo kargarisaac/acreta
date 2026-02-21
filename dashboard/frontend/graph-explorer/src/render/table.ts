@@ -70,7 +70,7 @@ export class TableRenderer {
       tr.dataset.nodeId = row.id;
       if (this.selectedNodeIds.has(row.id)) tr.classList.add("is-selected");
       const tags = valueAsText(row.properties?.tags ?? []);
-      const type = valueAsText(row.properties?.learning_type ?? "");
+      const type = valueAsText(row.properties?.kind ?? "");
       const state = valueAsText(row.properties?.lifecycle_state ?? "");
       tr.innerHTML = `
         <td class="agx-col-check">
