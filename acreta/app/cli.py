@@ -8,7 +8,7 @@ import sys
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from acreta import __version__
 from acreta.adapters.registry import (
@@ -296,7 +296,7 @@ def _cmd_memory_add(args: argparse.Namespace) -> int:
     kind = str(args.kind or "insight")
     record = MemoryRecord(
         id=slugify(args.title),
-        primitive=primitive,
+        primitive=cast(Literal["decision", "learning"], primitive.value),
         kind=kind,
         title=args.title,
         body=args.body,
@@ -392,18 +392,6 @@ def _build_chat_prompt(
     )
 
 
-def _load_context_docs_for_chat(
-    *,
-    question: str,
-    memory_hit_count: int,
-    result_limit: int,
-    project: str | None,
-) -> list[dict[str, Any]]:
-    """Load optional context docs for chat prompts (disabled in this build)."""
-    _ = (question, memory_hit_count, result_limit, project)
-    return []
-
-
 def _looks_like_auth_error(response: str) -> bool:
     """Return whether the response text indicates auth configuration failure."""
     text = str(response or "").lower()
@@ -419,12 +407,7 @@ def _looks_like_auth_error(response: str) -> bool:
 def _cmd_chat(args: argparse.Namespace) -> int:
     """Run one chat query against the runtime agent."""
     hits: list[dict[str, Any]] = []
-    context_docs = _load_context_docs_for_chat(
-        question=args.question,
-        memory_hit_count=len(hits),
-        result_limit=args.limit,
-        project=args.project,
-    )
+    context_docs: list[dict[str, Any]] = []
     prompt = _build_chat_prompt(args.question, hits, context_docs)
     agent = AcretaAgent(
         skills=["acreta"],
@@ -440,11 +423,6 @@ def _cmd_chat(args: argparse.Namespace) -> int:
                     "response": response,
                     "agent_session_id": session_id,
                     "memory_ids": [fm.get("id", "") for fm in hits],
-                    "context_doc_ids": [
-                        str(row.get("doc_id"))
-                        for row in context_docs
-                        if row.get("doc_id")
-                    ],
                     "fallback_used": False,
                 },
                 indent=2,

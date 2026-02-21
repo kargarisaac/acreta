@@ -246,9 +246,7 @@ class AcretaAgent:
             normalized_content = f"---\n{normalized_fm}---\n{body}"
 
             # Normalize filename
-            canonical_name = canonical_memory_filename(
-                primitive=primitive_type, title=title, run_id=run_id
-            )
+            canonical_name = canonical_memory_filename(title=title, run_id=run_id)
             canonical_path = resolved.parent / canonical_name
 
             updated = dict(tool_input)
@@ -272,10 +270,25 @@ class AcretaAgent:
                 }
             resolved = Path(str(raw_path)).expanduser().resolve()
             if any(self._is_within(resolved, root) for root in allowed_roots):
+                # Extension allowlist check
+                ext = resolved.suffix.lower()
+                in_memory = memory_root and self._is_within(resolved, memory_root)
+                if in_memory:
+                    allowed_exts = {".md"}
+                else:
+                    allowed_exts = {".md", ".json", ".jsonl", ".log", ".txt"}
+                if ext not in allowed_exts:
+                    return {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": f"disallowed_file_extension:{ext}",
+                        }
+                    }
                 updated_input = dict(tool_input)
                 updated_input["file_path"] = str(resolved)
                 # Normalize if writing to a memory primitive folder
-                if memory_root and self._is_within(resolved, memory_root):
+                if in_memory:
                     updated_input = _normalize_memory_write(resolved, updated_input)
                 return {
                     "hookSpecificOutput": {
@@ -578,14 +591,30 @@ class AcretaAgent:
             "update": int(counts_raw.get("update") or 0),
             "no_op": int(counts_raw.get("no_op") or counts_raw.get("no-op") or 0),
         }
-        written_memory_paths = [
-            str(item)
-            for item in (report.get("written_memory_paths") or [])
-            if isinstance(item, str) and item
-        ]
-        summary_path = str(report.get("summary_path") or "").strip()
-        if not summary_path:
+        written_memory_paths: list[str] = []
+        for item in report.get("written_memory_paths") or []:
+            if not isinstance(item, str) or not item:
+                continue
+            rp = Path(item).resolve()
+            if not (
+                self._is_within(rp, resolved_memory_root)
+                or self._is_within(rp, run_folder)
+            ):
+                raise RuntimeError(f"report_path_outside_allowed_roots:{rp}")
+            written_memory_paths.append(str(rp))
+
+        raw_summary = str(report.get("summary_path") or "").strip()
+        if not raw_summary:
             raise RuntimeError("missing_summary_path_in_report")
+        summary_path_resolved = Path(raw_summary).resolve()
+        if not (
+            self._is_within(summary_path_resolved, resolved_memory_root)
+            or self._is_within(summary_path_resolved, run_folder)
+        ):
+            raise RuntimeError(
+                f"summary_path_outside_allowed_roots:{summary_path_resolved}"
+            )
+        summary_path = str(summary_path_resolved)
 
         return {
             "trace_path": str(trace_file),

@@ -92,7 +92,6 @@ def test_chat_uses_context_docs_when_memory_signal_is_thin(
     code, payload = run_cli_json(["chat", "how to deploy", "--limit", "5", "--json"])
     assert code == 0
 
-    assert payload["context_doc_ids"] == []
     assert "Context docs (loaded only if needed)" in captured["prompt"]
     assert "dynamic fan-out" in captured["prompt"]
 

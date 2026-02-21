@@ -10,12 +10,11 @@ import json
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import dspy
 from pydantic import BaseModel, Field
 
-from acreta.memory.memory_record import MemoryType
 from acreta.memory.utils import configure_dspy_lm, env_positive_int
 from acreta.sessions import catalog as session_db
 
@@ -23,7 +22,9 @@ from acreta.sessions import catalog as session_db
 class MemoryCandidate(BaseModel):
     """One extracted memory candidate from a transcript."""
 
-    primitive: MemoryType = Field(description="Memory type: decision or learning.")
+    primitive: Literal["decision", "learning"] = Field(
+        description="Memory type: decision or learning. Never summary."
+    )
     kind: str | None = Field(
         default=None,
         description="Subtype: insight, procedure, friction, pitfall, or preference. Usually set when primitive=learning.",
@@ -42,15 +43,28 @@ class MemoryCandidate(BaseModel):
 class MemoryExtractSignature(dspy.Signature):
     """Extract reusable memory candidates from transcript text.
 
+    Primitive type rules (must be consistent):
+    - decision: an explicit choice, preference, or configuration that should stay stable.
+      Trigger words: "decision", "we will", "use X not Y", "always do", "never do", "set X to Y".
+    - learning: a lesson, fix, pattern, or friction signal learned from experience.
+      Trigger words: "lesson", "fix", "found that", "struggled with", "wasted time on".
+    - When in doubt, prefer learning. Only use decision when the transcript contains
+      a clear deliberate choice or a stated configuration value.
+
+    Kind (for learnings only):
+    - insight: a reusable observation or pattern.
+    - procedure: a step-by-step fix or workflow.
+    - friction: a blocker, struggle, or time-waster.
+    - pitfall: a mistake to avoid.
+    - preference: a soft preference (not a hard decision).
+
+    Tags: assign descriptive group/cluster labels for categorization. No limit on count.
+    Examples: queue, heartbeat, docker, ci-cd, patching, error-handling.
+
     Focus on high-value items:
     - repeated struggles and blockers
     - lessons and fixes that worked
     - decisions to reuse later
-    - practical context embedded as learning tags
-
-    Use Acreta memory type values exactly: decision, learning.
-    For struggle/blocker memories, use primitive=learning and kind=friction.
-    Assign descriptive tags (group/cluster labels) to each candidate for categorization. No limit on tag count.
     """
 
     transcript: str = dspy.InputField(desc="Raw transcript text")

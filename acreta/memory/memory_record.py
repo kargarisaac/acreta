@@ -66,7 +66,7 @@ def slugify(value: str) -> str:
     return cleaned or "memory"
 
 
-def canonical_memory_filename(*, primitive: MemoryType, title: str, run_id: str) -> str:
+def canonical_memory_filename(*, title: str, run_id: str) -> str:
     """Build canonical filename: ``{YYYYMMDD}-{slug}.md``.
 
     Uses the date portion of run_id (format ``sync-YYYYMMDD-HHMMSS-hex``) when
@@ -152,7 +152,7 @@ if __name__ == "__main__":
     """Run a real-path self-test for MemoryRecord serialization."""
     record = MemoryRecord(
         id="queue-lifecycle",
-        primitive=MemoryType.learning,
+        primitive="learning",
         kind="insight",
         title="Queue lifecycle",
         body="Keep queue states explicit.",
@@ -179,7 +179,6 @@ if __name__ == "__main__":
 
     # Verify canonical_memory_filename
     fname = canonical_memory_filename(
-        primitive=MemoryType.learning,
         title="My Title",
         run_id="sync-20260220-120000-abc123",
     )

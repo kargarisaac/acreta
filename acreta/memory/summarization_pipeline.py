@@ -15,7 +15,7 @@ import dspy
 import frontmatter
 from pydantic import BaseModel, Field
 
-from acreta.memory.memory_record import MemoryType, canonical_memory_filename, slugify
+from acreta.memory.memory_record import canonical_memory_filename, slugify
 from acreta.memory.utils import configure_dspy_lm, env_positive_int
 from acreta.sessions import catalog as session_db
 
@@ -71,7 +71,6 @@ def _summarize_trace_with_rlm(
     *,
     metadata: dict[str, Any] | None = None,
     metrics: dict[str, Any] | None = None,
-    session_file_path: Path,
 ) -> dict[str, Any]:
     """Run DSPy RLM summarization and return schema-validated summary metadata payload."""
     if not transcript.strip():
@@ -127,7 +126,6 @@ def write_summary_markdown(
     }
 
     filename = canonical_memory_filename(
-        primitive=MemoryType.summary,
         title=title,
         run_id=run_id,
     )
@@ -155,7 +153,6 @@ def summarize_trace_from_session_file(
         transcript,
         metadata=session_metadata,
         metrics=metrics,
-        session_file_path=session_file_path,
     )
 
 
