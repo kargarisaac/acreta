@@ -1,16 +1,18 @@
-"""Canonical memory taxonomy and markdown record schemas."""
+"""Canonical memory taxonomy, on-disk record model, and markdown helpers.
+
+MemoryRecord subclasses MemoryCandidate (DSPy extraction schema) and adds
+bookkeeping fields for persisted memory files.
+"""
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 import unicodedata
 from datetime import datetime, timezone
 from enum import Enum
 
-import yaml
-from pydantic import BaseModel, Field
+import frontmatter
+from pydantic import Field
 
 
 class MemoryType(str, Enum):
@@ -21,23 +23,61 @@ class MemoryType(str, Enum):
     summary = "summary"
 
 
-MEMORY_TYPE_DEFINITIONS: dict[MemoryType, str] = {
-    MemoryType.decision: "A concrete choice that should remain stable unless explicitly changed.",
-    MemoryType.learning: "A reusable lesson, fix, pattern, or friction signal from coding work.",
-    MemoryType.summary: "An episodic trace summary for one run, always written to summaries.",
-}
-
 MEMORY_TYPE_FOLDERS: dict[MemoryType, str] = {
     MemoryType.decision: "decisions",
     MemoryType.learning: "learnings",
     MemoryType.summary: "summaries",
 }
 
-MEMORY_TYPE_EXAMPLES: dict[MemoryType, str] = {
-    MemoryType.decision: "Use heartbeat every 15s with max_attempts=3.",
-    MemoryType.learning: "Patch exact file path first to avoid global replace mistakes.",
-    MemoryType.summary: "Session fixed queue duplicate claims and added retry metrics.",
+# Canonical required frontmatter fields per primitive type.
+# Used by the memory-write prompt (tells the agent what to write) and
+# the PreToolUse hook (normalizes/enforces before Write hits disk).
+MEMORY_FRONTMATTER_SCHEMA: dict[MemoryType, list[str]] = {
+    MemoryType.decision: [
+        "id",
+        "title",
+        "created",
+        "updated",
+        "source",
+        "confidence",
+        "tags",
+    ],
+    MemoryType.learning: [
+        "id",
+        "title",
+        "created",
+        "updated",
+        "source",
+        "kind",
+        "confidence",
+        "tags",
+    ],
 }
+
+
+def slugify(value: str) -> str:
+    """Generate a filesystem-safe ASCII slug from text."""
+    raw = (
+        unicodedata.normalize("NFKD", str(value or ""))
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
+    cleaned = re.sub(r"[^a-zA-Z0-9]+", "-", raw.strip().lower()).strip("-")
+    return cleaned or "memory"
+
+
+def canonical_memory_filename(*, primitive: MemoryType, title: str, run_id: str) -> str:
+    """Build canonical filename: ``{YYYYMMDD}-{slug}.md``.
+
+    Uses the date portion of run_id (format ``sync-YYYYMMDD-HHMMSS-hex``) when
+    available, otherwise today's date.
+    """
+    slug = slugify(title)
+    parts = (run_id or "").split("-")
+    date_str = next((p for p in parts if len(p) == 8 and p.isdigit()), None)
+    if not date_str:
+        date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return f"{date_str}-{slug}.md"
 
 
 def memory_folder(memory_type: MemoryType) -> str:
@@ -45,395 +85,102 @@ def memory_folder(memory_type: MemoryType) -> str:
     return MEMORY_TYPE_FOLDERS[memory_type]
 
 
-PrimitiveType = MemoryType
+def memory_write_schema_prompt() -> str:
+    """Return a prompt-ready description of memory file naming and frontmatter rules."""
+    lines = [
+        "Memory file write rules (strict):",
+        "- Filename format: {YYYYMMDD}-{slug}.md where slug is the slugified title.",
+        "- Every memory file must start with YAML frontmatter between --- delimiters.",
+        "- Required frontmatter fields per type:",
+    ]
+    for ptype, fields in MEMORY_FRONTMATTER_SCHEMA.items():
+        lines.append(f"  {ptype.value}: {', '.join(fields)}")
+    lines += [
+        "- Field rules:",
+        "  - id: slugified title (lowercase, hyphens, no special chars).",
+        "  - created/updated: ISO 8601 UTC (e.g. 2026-02-20T23:10:32Z).",
+        "  - source: the run_id from metadata.",
+        "  - confidence: float 0.0-1.0.",
+        "  - kind: one of insight, procedure, friction, pitfall, preference.",
+        "  - tags: list of group/cluster labels.",
+        "  - Do not add extra fields beyond the required set.",
+        "- Body follows the closing --- delimiter as plain text/markdown.",
+        "- Summaries are written directly by the summarization pipeline, not by the agent.",
+    ]
+    return "\n".join(lines)
 
 
-class LearningType(str, Enum):
-    """Learning subtype taxonomy."""
-
-    insight = "insight"
-    procedure = "procedure"
-    friction = "friction"
-    pitfall = "pitfall"
-    preference = "preference"
+# Import MemoryCandidate here (after MemoryType is defined) to avoid circular imports.
+# MemoryCandidate is defined in extract_pipeline and uses MemoryType.
+from acreta.memory.extract_pipeline import MemoryCandidate  # noqa: E402
 
 
-class LifecycleState(str, Enum):
-    """Lifecycle state machine for memory confidence and curation."""
+class MemoryRecord(MemoryCandidate):
+    """On-disk memory record for decisions/learnings.
 
-    candidate = "candidate"
-    validated = "validated"
-    established = "established"
-    stale = "stale"
-    archived = "archived"
-
-
-class EvidenceItem(BaseModel):
-    """Evidence snippet linked to a learning from a source session."""
-
-    session_id: str
-    snippet: str = ""
-    timestamp: str | None = None
-    source_path: str | None = None
-    source_type: str = "message"
-    source_ref: str | None = None
-    outcome: str = "unknown"
-
-
-class Learning(BaseModel):
-    """Canonical memory record persisted as markdown + sidecar metadata."""
+    Subclasses MemoryCandidate (DSPy extraction schema) and adds bookkeeping
+    fields: id, created, updated, source.
+    """
 
     id: str
-    title: str
-    body: str = ""
-    primitive: PrimitiveType = PrimitiveType.learning
-    kind: str = "insight"
-    status: str = "active"
-    decided_by: str = "agent"
-    related: list[str] = Field(default_factory=list)
-    description: str | None = None
-    date: str | None = None
-    time: str | None = None
-    coding_agent: str | None = None
-    raw_trace_path: str | None = None
-    run_id: str | None = None
-    repo_name: str | None = None
-    learning_type: LearningType = LearningType.insight
-    lifecycle_state: LifecycleState = LifecycleState.candidate
-    confidence: float = 0.7
-    occurrences: int = 1
-    source_sessions: list[str] = Field(default_factory=list)
-    agent_types: list[str] = Field(default_factory=list)
-    projects: list[str] = Field(default_factory=list)
-    tags: list[str] = Field(default_factory=list)
-    content_hash: str | None = None
-    useful_count: int = 0
-    not_useful_count: int = 0
-    evidence: list[EvidenceItem] = Field(default_factory=list)
-    signal_sources: list[str] = Field(default_factory=list)
-    durability_score: float = 0.5
-    volatility: str = "medium"
-    last_validated_at: datetime | None = None
-    version_of: str | None = None
-    supersedes: list[str] = Field(default_factory=list)
     created: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-    @staticmethod
-    def _normalize_text(value: str) -> str:
-        """Normalize line endings and trim trailing whitespace."""
-        text = (value or "").replace("\r\n", "\n").replace("\r", "\n")
-        return "\n".join(line.rstrip() for line in text.split("\n")).strip()
-
-    @staticmethod
-    def _normalize_list(values: list[str]) -> list[str]:
-        """Lowercase, trim, deduplicate, and sort list values."""
-        cleaned = [str(item).strip().lower() for item in values if str(item).strip()]
-        return sorted(set(cleaned))
-
-    @staticmethod
-    def slugify(value: str) -> str:
-        """Generate a filesystem-safe ASCII slug from text."""
-        raw = unicodedata.normalize("NFKD", str(value or "")).encode("ascii", "ignore").decode("ascii")
-        cleaned = re.sub(r"[^a-zA-Z0-9]+", "-", raw.strip().lower()).strip("-")
-        return cleaned or "memory"
-
-    def filename(self) -> str:
-        """Return canonical markdown filename for this learning."""
-        return f"{self.slugify(self.title)}--{self.id}.md"
-
-    def primitive_dirname(self) -> str:
-        """Return primitive folder name for markdown storage."""
-        return memory_folder(self.primitive)
-
-    def resolve_related_ids(self) -> list[str]:
-        """Return cleaned explicit related reference IDs/slugs."""
-        return [str(value).strip() for value in self.related if str(value).strip()]
-
-    def compute_content_hash(self) -> str:
-        """Compute stable content hash used for dedupe and consolidation."""
-        payload = {
-            "primitive": self.primitive.value,
-            "title": self._normalize_text(self.title).lower(),
-            "body": self._normalize_text(self.body),
-            "kind": self.kind,
-            "status": self.status,
-            "decided_by": self.decided_by,
-            "description": self.description or "",
-            "date": self.date or "",
-            "time": self.time or "",
-            "coding_agent": self.coding_agent or "",
-            "raw_trace_path": self.raw_trace_path or "",
-            "run_id": self.run_id or "",
-            "repo_name": self.repo_name or "",
-            "tags": self._normalize_list(self.tags),
-            "related": self._normalize_list(self.related),
-        }
-        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-    def ensure_content_hash(self) -> str:
-        """Populate missing ``content_hash`` and return it."""
-        if not self.content_hash:
-            self.content_hash = self.compute_content_hash()
-        return self.content_hash
+    source: str = ""
 
     def to_frontmatter_dict(self) -> dict:
         """Build minimal frontmatter payload based on primitive type."""
-        base = {
+        base: dict = {
             "id": self.id,
             "title": self.title,
-            "tags": self.tags,
-            "related": self.related,
             "created": self.created.isoformat(),
             "updated": self.updated.isoformat(),
+            "source": self.source,
+            "confidence": self.confidence,
+            "tags": list(self.tags),
         }
-        if self.primitive == PrimitiveType.decision:
-            base["status"] = self.status
-            base["decided_by"] = self.decided_by
-        elif self.primitive == PrimitiveType.learning:
-            base["kind"] = self.kind
-        elif self.primitive == PrimitiveType.summary:
-            if self.description:
-                base["description"] = self.description
-            if self.date:
-                base["date"] = self.date
-            if self.time:
-                base["time"] = self.time
-            if self.coding_agent:
-                base["coding_agent"] = self.coding_agent
-            if self.raw_trace_path:
-                base["raw_trace_path"] = self.raw_trace_path
-            if self.run_id:
-                base["run_id"] = self.run_id
-            if self.repo_name:
-                base["repo_name"] = self.repo_name
+        if self.primitive == MemoryType.learning:
+            base["kind"] = self.kind or "insight"
         return base
 
     def to_markdown(self) -> str:
-        """Serialize learning to frontmatter + body markdown format."""
-        fm = yaml.dump(
-            self.to_frontmatter_dict(),
-            default_flow_style=False,
-            sort_keys=False,
-            allow_unicode=True,
-        )
-        return f"---\n{fm}---\n{self.body}"
-
-    @classmethod
-    def from_markdown(cls, text: str) -> "Learning":
-        """Parse learning from markdown frontmatter + body format."""
-        match = re.match(r"^---\n(.+?\n)---\n(.*)", text, re.DOTALL)
-        if not match:
-            raise ValueError("Invalid learning markdown: missing frontmatter")
-        fm_text, body = match.group(1), match.group(2)
-        fm = yaml.safe_load(fm_text)
-        if not isinstance(fm, dict):
-            raise ValueError("Invalid frontmatter: not a mapping")
-
-        def _parse_datetime(value: object) -> datetime | None:
-            """Parse datetime-like frontmatter values into UTC-aware datetimes."""
-            if isinstance(value, datetime):
-                if value.tzinfo is None:
-                    return value.replace(tzinfo=timezone.utc)
-                return value
-            if isinstance(value, str):
-                try:
-                    parsed = datetime.fromisoformat(value)
-                except ValueError:
-                    return None
-                if parsed.tzinfo is None:
-                    return parsed.replace(tzinfo=timezone.utc)
-                return parsed
-            return None
-
-        def _coerce_list(value: object) -> list[str]:
-            """Coerce frontmatter values into a string list."""
-            if not value:
-                return []
-            if isinstance(value, list):
-                return [str(item) for item in value if item is not None]
-            return [str(value)]
-
-        def _coerce_sources(value: object) -> list[str]:
-            """Coerce mixed source/session structures into session id strings."""
-            if not value:
-                return []
-            if isinstance(value, list):
-                items: list[str] = []
-                for item in value:
-                    if item is None:
-                        continue
-                    if isinstance(item, dict):
-                        session_id = item.get("session") or item.get("id") or item.get("run_id")
-                        if session_id:
-                            items.append(str(session_id))
-                    else:
-                        items.append(str(item))
-                return items
-            return [str(value)]
-
-        primitive_raw = str(fm.get("primitive") or "").strip().lower()
-        if primitive_raw in {item.value for item in PrimitiveType}:
-            primitive = PrimitiveType(primitive_raw)
-        else:
-            if "decided_by" in fm or "status" in fm:
-                primitive = PrimitiveType.decision
-            elif "raw_trace_path" in fm or "coding_agent" in fm or "date" in fm or "time" in fm:
-                primitive = PrimitiveType.summary
-            else:
-                primitive = PrimitiveType.learning
-
-        raw_type = fm.get("learning_type") or "insight"
-        created = _parse_datetime(fm.get("created") or fm.get("created_at")) or datetime.now(timezone.utc)
-        updated = _parse_datetime(fm.get("updated") or fm.get("updated_at")) or datetime.now(timezone.utc)
-        last_validated_at = _parse_datetime(fm.get("last_validated_at"))
-
-        learning = cls(
-            id=str(fm["id"]),
-            title=str(fm["title"]),
-            body=body,
-            primitive=primitive,
-            kind=str(fm.get("kind") or "insight"),
-            status=str(fm.get("status") or "active"),
-            decided_by=str(fm.get("decided_by") or "agent"),
-            related=_coerce_list(fm.get("related")),
-            description=(str(fm.get("description")) if fm.get("description") is not None else None),
-            date=(str(fm.get("date")) if fm.get("date") is not None else None),
-            time=(str(fm.get("time")) if fm.get("time") is not None else None),
-            coding_agent=(str(fm.get("coding_agent")) if fm.get("coding_agent") is not None else None),
-            raw_trace_path=(str(fm.get("raw_trace_path")) if fm.get("raw_trace_path") is not None else None),
-            run_id=(str(fm.get("run_id")) if fm.get("run_id") is not None else None),
-            repo_name=(str(fm.get("repo_name")) if fm.get("repo_name") is not None else None),
-            learning_type=LearningType(str(raw_type)),
-            lifecycle_state=LifecycleState(str(fm.get("lifecycle_state", "candidate"))),
-            confidence=float(fm.get("confidence", 0.7)),
-            occurrences=int(fm.get("occurrences", 1)),
-            source_sessions=_coerce_sources(fm.get("source_sessions") or fm.get("sources")),
-            agent_types=_coerce_list(fm.get("agent_types")),
-            projects=_coerce_list(fm.get("projects")),
-            tags=_coerce_list(fm.get("tags")),
-            useful_count=int(fm.get("useful_count", 0)),
-            not_useful_count=int(fm.get("not_useful_count", 0)),
-            evidence=[EvidenceItem(**item) for item in (fm.get("evidence") or []) if isinstance(item, dict)],
-            signal_sources=_coerce_list(fm.get("signal_sources")),
-            durability_score=float(fm.get("durability_score", 0.5)),
-            volatility=str(fm.get("volatility", "medium") or "medium"),
-            last_validated_at=last_validated_at,
-            content_hash=fm.get("content_hash") or None,
-            version_of=fm.get("version_of") or None,
-            supersedes=_coerce_list(fm.get("supersedes")),
-            created=created,
-            updated=updated,
-        )
-        learning.ensure_content_hash()
-        return learning
-
-
-class StateMeta(BaseModel):
-    """Operational state sidecar model for a learning."""
-
-    id: str
-    confidence: float = 0.7
-    occurrences: int = 1
-    source_sessions: list[str] = Field(default_factory=list)
-    agent_types: list[str] = Field(default_factory=list)
-    projects: list[str] = Field(default_factory=list)
-    useful_count: int = 0
-    not_useful_count: int = 0
-    signal_sources: list[str] = Field(default_factory=list)
-    durability_score: float = 0.7
-    volatility: str = "medium"
-    lifecycle_state: str = "candidate"
-    content_hash: str | None = None
-    last_validated_at: str | None = None
-    version_of: str | None = None
-    supersedes: list[str] = Field(default_factory=list)
-    updated: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-
-    @classmethod
-    def from_learning(cls, learning: Learning) -> "StateMeta":
-        """Build state sidecar data from a learning record."""
-        return cls(
-            id=learning.id,
-            confidence=learning.confidence,
-            occurrences=learning.occurrences,
-            source_sessions=list(learning.source_sessions),
-            agent_types=list(learning.agent_types),
-            projects=list(learning.projects),
-            useful_count=learning.useful_count,
-            not_useful_count=learning.not_useful_count,
-            signal_sources=list(learning.signal_sources),
-            durability_score=learning.durability_score,
-            volatility=learning.volatility,
-            lifecycle_state=learning.lifecycle_state.value,
-            content_hash=learning.content_hash,
-            last_validated_at=(
-                learning.last_validated_at.isoformat() if isinstance(learning.last_validated_at, datetime) else None
-            ),
-            version_of=learning.version_of,
-            supersedes=list(learning.supersedes),
-            updated=learning.updated.isoformat(),
-        )
-
-    def apply_to_learning(self, learning: Learning) -> Learning:
-        """Apply sidecar state fields onto a learning record."""
-        learning.confidence = float(self.confidence)
-        learning.occurrences = int(self.occurrences)
-        learning.source_sessions = list(self.source_sessions)
-        learning.agent_types = list(self.agent_types)
-        learning.projects = list(self.projects)
-        learning.useful_count = int(self.useful_count)
-        learning.not_useful_count = int(self.not_useful_count)
-        learning.signal_sources = list(self.signal_sources)
-        learning.durability_score = float(self.durability_score)
-        learning.volatility = str(self.volatility or "medium")
-        try:
-            learning.lifecycle_state = LifecycleState(str(self.lifecycle_state or "candidate"))
-        except ValueError:
-            learning.lifecycle_state = LifecycleState.candidate
-        learning.content_hash = self.content_hash
-        if self.last_validated_at:
-            try:
-                parsed = datetime.fromisoformat(self.last_validated_at)
-                learning.last_validated_at = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-            except ValueError:
-                learning.last_validated_at = None
-        else:
-            learning.last_validated_at = None
-        learning.version_of = self.version_of
-        learning.supersedes = list(self.supersedes)
-        try:
-            parsed_updated = datetime.fromisoformat(self.updated)
-            learning.updated = parsed_updated if parsed_updated.tzinfo else parsed_updated.replace(tzinfo=timezone.utc)
-        except ValueError:
-            learning.updated = datetime.now(timezone.utc)
-        learning.ensure_content_hash()
-        return learning
-
-
-class EvidenceMeta(BaseModel):
-    """Evidence sidecar model for a learning."""
-
-    id: str
-    evidence: list[EvidenceItem] = Field(default_factory=list)
-    updated: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-
-    @classmethod
-    def from_learning(cls, learning: Learning) -> "EvidenceMeta":
-        """Build evidence sidecar data from a learning record."""
-        return cls(id=learning.id, evidence=list(learning.evidence), updated=learning.updated.isoformat())
-
-    def apply_to_learning(self, learning: Learning) -> Learning:
-        """Apply sidecar evidence data onto a learning record."""
-        learning.evidence = list(self.evidence)
-        return learning
+        """Serialize record to frontmatter + body markdown format."""
+        post = frontmatter.Post(self.body, **self.to_frontmatter_dict())
+        return frontmatter.dumps(post) + "\n"
 
 
 if __name__ == "__main__":
-    sample = Learning(id="learning-1", title="Queue lifecycle", body="Keep queue states explicit.")
-    encoded = sample.to_markdown()
-    decoded = Learning.from_markdown(encoded)
-    assert decoded.id == sample.id
-    assert decoded.title == sample.title
-    assert decoded.compute_content_hash()
+    """Run a real-path self-test for MemoryRecord serialization."""
+    record = MemoryRecord(
+        id="queue-lifecycle",
+        primitive=MemoryType.learning,
+        kind="insight",
+        title="Queue lifecycle",
+        body="Keep queue states explicit.",
+        confidence=0.8,
+        tags=["queue", "reliability"],
+        source="self-test-run",
+    )
+    md = record.to_markdown()
+    assert "---" in md
+    assert "queue-lifecycle" in md
+    assert "Queue lifecycle" in md
+    assert "Keep queue states explicit." in md
+
+    fm_dict = record.to_frontmatter_dict()
+    assert fm_dict["id"] == "queue-lifecycle"
+    assert fm_dict["kind"] == "insight"
+    assert fm_dict["tags"] == ["queue", "reliability"]
+    assert "confidence" in fm_dict
+
+    # Verify slugify
+    assert slugify("Hello World!") == "hello-world"
+    assert slugify("") == "memory"
+    assert slugify("  --test--  ") == "test"
+
+    # Verify canonical_memory_filename
+    fname = canonical_memory_filename(
+        primitive=MemoryType.learning,
+        title="My Title",
+        run_id="sync-20260220-120000-abc123",
+    )
+    assert fname == "20260220-my-title.md"

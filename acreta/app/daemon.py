@@ -13,7 +13,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
-from acreta.app.arg_utils import parse_agent_filter, parse_csv, parse_duration_to_seconds
+from acreta.app.arg_utils import (
+    parse_agent_filter,
+    parse_csv,
+    parse_duration_to_seconds,
+)
 from acreta.config.settings import get_config
 
 
@@ -46,7 +50,9 @@ def _retry_backoff_seconds(attempts: int) -> int:
 
 
 @contextmanager
-def _job_heartbeat(run_id: str, heartbeat_func: Callable[[str], bool], interval_seconds: int = 15):
+def _job_heartbeat(
+    run_id: str, heartbeat_func: Callable[[str], bool], interval_seconds: int = 15
+):
     """Background heartbeat helper for long-running job processing."""
     stop_heartbeat = threading.Event()
 
@@ -107,7 +113,9 @@ def active_lock_state(path: Path, stale_seconds: int = 60) -> dict[str, object] 
     if not state:
         return None
     pid = state.get("pid")
-    if _pid_alive(pid if isinstance(pid, int) else None) and not _is_stale(state, stale_seconds):
+    if _pid_alive(pid if isinstance(pid, int) else None) and not _is_stale(
+        state, stale_seconds
+    ):
         return state
     return None
 
@@ -245,7 +253,9 @@ def maintain_default_steps() -> list[str]:
     return ["consolidate", "decay", "report"]
 
 
-def resolve_maintain_steps(raw_steps: str | None, parse_csv: Callable[[str | None], list[str]]) -> list[str]:
+def resolve_maintain_steps(
+    raw_steps: str | None, parse_csv: Callable[[str | None], list[str]]
+) -> list[str]:
     """Filter requested maintain steps while preserving canonical order."""
     default_steps = maintain_default_steps()
     if not raw_steps:
@@ -269,16 +279,16 @@ def _run_maintain_step(
     force: bool,
     dry_run: bool,
 ) -> dict | None:
-    """Execute one maintain step and return optional structured output."""
+    """Execute one maintain step and return optional structured output.
+
+    consolidate and decay are stubs pending agentic rewrite (specs/010).
+    """
     from acreta.memory.extract_pipeline import build_extract_report
-    from acreta.memory.maintenance import apply_decay, consolidate_learnings
 
     if step == "consolidate":
-        consolidate_learnings()
-        return None
+        return None  # stub — agentic rewrite pending
     if step == "decay":
-        apply_decay()
-        return None
+        return None  # stub — agentic rewrite pending
     if step == "report":
         return build_extract_report(
             window_start=window_start,
@@ -371,7 +381,9 @@ def run_sync_once(
                     start=window_start,
                     end=window_end,
                 )
-                details: list[IndexedSession] = indexed if isinstance(indexed, list) else []
+                details: list[IndexedSession] = (
+                    indexed if isinstance(indexed, list) else []
+                )
                 indexed_sessions = len(details)
                 for item in details:
                     queued = enqueue_session_job(
@@ -398,7 +410,9 @@ def run_sync_once(
                 limit=claim_limit,
                 run_ids=[run_id] if run_id else None,
             )
-            target_run_ids = [str(item.get("run_id") or "") for item in claimed if item.get("run_id")]
+            target_run_ids = [
+                str(item.get("run_id") or "") for item in claimed if item.get("run_id")
+            ]
             lead_agent = AcretaAgent(
                 skills=["acreta"],
                 default_cwd=str(Path.cwd()),
@@ -414,8 +428,10 @@ def run_sync_once(
                         if not session_path:
                             doc = fetch_session_doc(rid) or {}
                             session_path = str(doc.get("session_path") or "").strip()
-                        result = lead_agent.run(Path(session_path), run_mode="sync")
-                except Exception as exc:  # pragma: no cover - defensive guard for runtime stability.
+                        result = lead_agent.run(Path(session_path))
+                except (
+                    Exception
+                ) as exc:  # pragma: no cover - defensive guard for runtime stability.
                     failed += 1
                     fail_session_job(
                         rid,
@@ -449,7 +465,9 @@ def run_sync_once(
 
         record_service_run(
             job_type="sync",
-            status=status if code == EXIT_OK else ("partial" if code == EXIT_PARTIAL else "failed"),
+            status=status
+            if code == EXIT_OK
+            else ("partial" if code == EXIT_PARTIAL else "failed"),
             started_at=started,
             completed_at=datetime.now(timezone.utc).isoformat(),
             trigger=trigger,
@@ -614,7 +632,11 @@ def run_daemon_forever(poll_seconds: int | None = None) -> None:
     import time
 
     config = get_config()
-    interval = poll_seconds if poll_seconds and poll_seconds > 0 else max(config.poll_interval_minutes * 60, 30)
+    interval = (
+        poll_seconds
+        if poll_seconds and poll_seconds > 0
+        else max(config.poll_interval_minutes * 60, 30)
+    )
     while True:
         run_daemon_once()
         time.sleep(interval)

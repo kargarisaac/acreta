@@ -31,10 +31,13 @@ from acreta.config.project_scope import resolve_data_dirs
 from acreta.config.logging import configure_logging
 from acreta.config.settings import get_config
 from acreta.memory.memory_repo import build_memory_paths, reset_memory_root
-from acreta.memory.memory_record import Learning, LearningType, PrimitiveType
-from acreta.memory.memory_repo import MemoryRepository
+from acreta.memory.memory_record import MemoryRecord, MemoryType, memory_folder, slugify
 from acreta.runtime.agent import AcretaAgent
-from acreta.sessions.catalog import count_fts_indexed, count_session_jobs_by_status, latest_service_run
+from acreta.sessions.catalog import (
+    count_fts_indexed,
+    count_session_jobs_by_status,
+    latest_service_run,
+)
 
 
 def _emit(message: object = "", *, file: Any | None = None) -> None:
@@ -50,86 +53,36 @@ def _hoist_global_json_flag(raw: list[str]) -> list[str]:
     return ["--json"] + [item for item in raw if item != "--json"]
 
 
-def _format_learning(learning: Learning) -> str:
-    """Render one compact human-readable learning summary line."""
-    return (
-        f"{learning.id} [{learning.primitive.value}] "
-        f"conf={learning.confidence:.2f} "
-        f"title={learning.title}"
-    )
+def _list_memory_files(memory_dir: Path) -> list[Path]:
+    """List all markdown files in canonical memory primitive folders."""
+    paths: list[Path] = []
+    for mtype in MemoryType:
+        folder = memory_dir / memory_folder(mtype)
+        if folder.exists():
+            paths.extend(sorted(folder.glob("*.md")))
+    return paths
 
 
-def _memory_store() -> MemoryRepository:
-    """Create the canonical file-backed memory store instance."""
-    config = get_config()
-    return MemoryRepository(config.memory_dir, config.memory_dir.parent / "meta")
+def _read_memory_frontmatter(path: Path) -> dict[str, Any] | None:
+    """Read frontmatter from a memory markdown file. Returns None on parse error."""
+    import frontmatter
+
+    try:
+        post = frontmatter.load(str(path))
+        fm = dict(post.metadata)
+        fm["_body"] = post.content
+        fm["_path"] = str(path)
+        return fm
+    except Exception:
+        return None
 
 
-def _load_context_docs_for_chat(
-    *,
-    question: str,
-    memory_hit_count: int,
-    result_limit: int,
-    project: str | None,
-) -> list[dict[str, Any]]:
-    """Load optional context docs for chat prompts (disabled in this build)."""
-    _ = (question, memory_hit_count, result_limit, project)
-    return []
-
-
-def search_memory(
-    question: str,
-    project_filter: str | None = None,
-    limit: int = 20,
-) -> list[Learning]:
-    """Search memory by keyword tokens with stable list-all fallback."""
-    store = _memory_store()
-    learnings = store.list_all(project=project_filter)
-    if not question.strip():
-        return learnings[:limit]
-    tokens = [token.lower() for token in question.split() if token.strip()]
-    hits: list[Learning] = []
-    for learning in learnings:
-        haystack = " ".join([learning.title, learning.body, " ".join(learning.tags), " ".join(learning.related)]).lower()
-        if any(token in haystack for token in tokens):
-            hits.append(learning)
-    return (hits or learnings)[:limit]
-
-
-def _build_chat_prompt(question: str, hits: list[Learning], context_docs: list[dict[str, Any]]) -> str:
-    """Build the final agent prompt with memory/context evidence blocks."""
-    context_lines = [
-        (
-            f"- {learning.id} [{learning.primitive.value}] conf={learning.confidence:.2f}: "
-            f"{learning.title} :: {(learning.body or '').strip()[:260]}"
-        )
-        for learning in hits
-    ]
-    context_block = "\n".join(context_lines) or "(no relevant memories)"
-
-    context_doc_lines = []
-    for row in context_docs:
-        doc_id = str(row.get("doc_id") or "")
-        title = str(row.get("title") or "")
-        body = str(row.get("body") or "").strip()
-        snippet = " ".join(body.split())[:260]
-        context_doc_lines.append(f"- {doc_id}: {title} :: {snippet}")
-    context_doc_block = "\n".join(context_doc_lines) if context_doc_lines else "(no context docs loaded)"
-
-    return (
-        "Answer the user question using the memory evidence below.\n"
-        "Retrieval contract:\n"
-        "- Lead handles retrieval strategy.\n"
-        "- Delegate parallel read-only Task explorers with dynamic fan-out.\n"
-        "- Search project-first, then global fallback.\n"
-        "- Return evidence with file paths and line refs.\n"
-        "- Use explicit ids/slugs only in related references (no wikilink syntax).\n"
-        "If memory is missing or uncertain, say that clearly.\n"
-        "Cite learning ids and context doc ids you used.\n\n"
-        f"Question:\n{question}\n\n"
-        f"Memory evidence:\n{context_block}\n"
-        f"\nContext docs (loaded only if needed):\n{context_doc_block}\n"
-    )
+def _format_memory_hit(fm: dict[str, Any]) -> str:
+    """Render one compact human-readable memory summary line."""
+    mid = fm.get("id", "?")
+    title = fm.get("title", "?")
+    confidence = fm.get("confidence", "?")
+    return f"{mid} conf={confidence} title={title}"
 
 
 def _cmd_connect(args: argparse.Namespace) -> int:
@@ -146,7 +99,9 @@ def _cmd_connect(args: argparse.Namespace) -> int:
         _emit(f"Connected platforms: {len(entries)}")
         for entry in entries:
             status = "ok" if entry["exists"] else "missing"
-            _emit(f"- {entry['name']}: {entry['path']} ({entry['session_count']} sessions, {status})")
+            _emit(
+                f"- {entry['name']}: {entry['path']} ({entry['session_count']} sessions, {status})"
+            )
         return 0
 
     if action == "auto":
@@ -175,7 +130,9 @@ def _cmd_connect(args: argparse.Namespace) -> int:
 
     existing = load_platforms(platforms_path)
     existing_path = (existing.get("platforms", {}).get(name) or {}).get("path")
-    result = connect_platform(platforms_path, name, custom_path=getattr(args, "path", None))
+    result = connect_platform(
+        platforms_path, name, custom_path=getattr(args, "path", None)
+    )
     status = str(result.get("status") or "")
     if status == "path_not_found":
         _emit(f"Path not found: {result.get('path')}", file=sys.stderr)
@@ -270,106 +227,198 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
     return run_dashboard_server(host=args.host, port=args.port)
 
 
+def search_memory(
+    question: str,
+    project_filter: str | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Search memory by keyword tokens with file-scan approach."""
+    config = get_config()
+    files = _list_memory_files(config.memory_dir)
+    all_fm: list[dict[str, Any]] = []
+    for path in files:
+        fm = _read_memory_frontmatter(path)
+        if fm:
+            all_fm.append(fm)
+    if not question.strip():
+        return all_fm[:limit]
+    tokens = [token.lower() for token in question.split() if token.strip()]
+    hits: list[dict[str, Any]] = []
+    for fm in all_fm:
+        haystack = " ".join(
+            [
+                str(fm.get("title", "")),
+                str(fm.get("_body", "")),
+                " ".join(fm.get("tags", [])),
+            ]
+        ).lower()
+        if any(token in haystack for token in tokens):
+            hits.append(fm)
+    return (hits or all_fm)[:limit]
+
+
 def _cmd_memory_search(args: argparse.Namespace) -> int:
     """Search stored memories and print list or JSON output."""
     hits = search_memory(args.query, limit=args.limit, project_filter=args.project)
     if args.json:
-        _emit(json.dumps([item.model_dump(mode="json") for item in hits], indent=2, ensure_ascii=True))
+        _emit(json.dumps(hits, indent=2, ensure_ascii=True, default=str))
         return 0
     if not hits:
         _emit("No matching memories.")
         return 0
-    for learning in hits:
-        _emit(_format_learning(learning))
+    for fm in hits:
+        _emit(_format_memory_hit(fm))
     return 0
 
 
 def _cmd_memory_list(args: argparse.Namespace) -> int:
     """List recent memories, optionally filtered by project."""
-    store = _memory_store()
-    learnings = store.list_all(project=args.project)
-    learnings = sorted(learnings, key=lambda item: item.updated, reverse=True)[: args.limit]
+    config = get_config()
+    files = _list_memory_files(config.memory_dir)
+    items: list[dict[str, Any]] = []
+    for path in files:
+        fm = _read_memory_frontmatter(path)
+        if fm:
+            items.append(fm)
+    items = items[: args.limit]
     if args.json:
-        _emit(json.dumps([item.model_dump(mode="json") for item in learnings], indent=2, ensure_ascii=True))
+        _emit(json.dumps(items, indent=2, ensure_ascii=True, default=str))
         return 0
-    for learning in learnings:
-        _emit(_format_learning(learning))
+    for fm in items:
+        _emit(_format_memory_hit(fm))
     return 0
 
 
 def _cmd_memory_add(args: argparse.Namespace) -> int:
     """Add one memory item from CLI flags."""
-    store = _memory_store()
-    primitive = PrimitiveType(str(args.primitive or "learning"))
-    learning_type = LearningType(str(args.learning_type or "insight"))
-    kind = str(args.kind or learning_type.value or "insight")
-    learning = Learning(
-        id=store.generate_id(primitive),
+    config = get_config()
+    primitive = MemoryType(str(args.primitive or "learning"))
+    kind = str(args.kind or "insight")
+    record = MemoryRecord(
+        id=slugify(args.title),
+        primitive=primitive,
+        kind=kind,
         title=args.title,
         body=args.body,
-        primitive=primitive,
-        learning_type=learning_type,
-        kind=kind,
-        status=str(args.status or "active"),
-        decided_by=str(args.decided_by or "agent"),
         confidence=args.confidence,
-        projects=parse_csv(args.project),
         tags=parse_csv(args.tags),
-        related=parse_csv(args.related),
-        agent_types=parse_csv(args.agent),
-        source_sessions=parse_csv(args.session),
-        signal_sources=["user_agent"],
     )
-    store.write(learning)
-    _emit(f"Added memory: {learning.id}")
-    return 0
-
-
-def _cmd_memory_feedback(args: argparse.Namespace) -> int:
-    """Update useful/not-useful counters for one memory."""
-    store = _memory_store()
-    learning = store.read(args.learning_id)
-    if learning is None:
-        _emit(f"Learning not found: {args.learning_id}", file=sys.stderr)
-        return 1
-    if args.useful:
-        learning.useful_count += 1
-    if args.not_useful:
-        learning.not_useful_count += 1
-    store.update(learning)
-    _emit(f"Updated feedback for: {learning.id}")
+    folder = config.memory_dir / memory_folder(primitive)
+    folder.mkdir(parents=True, exist_ok=True)
+    filename = (
+        f"{datetime.now(timezone.utc).strftime('%Y%m%d')}-{slugify(args.title)}.md"
+    )
+    filepath = folder / filename
+    filepath.write_text(record.to_markdown(), encoding="utf-8")
+    _emit(f"Added memory: {record.id} -> {filepath}")
     return 0
 
 
 def _cmd_memory_export(args: argparse.Namespace) -> int:
     """Export memories as Markdown or JSON to stdout or a file."""
-    store = _memory_store()
-    learnings = store.list_all(project=args.project)
+    config = get_config()
+    files = _list_memory_files(config.memory_dir)
+    items: list[dict[str, Any]] = []
+    for path in files:
+        fm = _read_memory_frontmatter(path)
+        if fm:
+            items.append(fm)
+
     if args.format == "json":
-        payload = [item.model_dump(mode="json") for item in learnings]
-        output = json.dumps(payload, indent=2, ensure_ascii=True)
+        output = json.dumps(items, indent=2, ensure_ascii=True, default=str)
     else:
         lines = ["# Acreta Memory Export", ""]
-        for learning in learnings:
-            lines.append(f"## {learning.title} ({learning.id})")
-            lines.append(f"- primitive: {learning.primitive.value}")
-            lines.append(f"- confidence: {learning.confidence:.2f}")
-            lines.append(learning.body.strip())
+        for fm in items:
+            title = fm.get("title", "?")
+            mid = fm.get("id", "?")
+            confidence = fm.get("confidence", "?")
+            body = str(fm.get("_body", "")).strip()[:260]
+            lines.append(f"## {title} ({mid})")
+            lines.append(f"- confidence: {confidence}")
+            lines.append(body)
             lines.append("")
         output = "\n".join(lines)
     if args.output:
         path = Path(args.output).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(output + ("\n" if not output.endswith("\n") else ""), encoding="utf-8")
+        path.write_text(
+            output + ("\n" if not output.endswith("\n") else ""), encoding="utf-8"
+        )
         _emit(f"Exported: {path}")
     else:
         _emit(output)
     return 0
 
 
+def _build_chat_prompt(
+    question: str, hits: list[dict[str, Any]], context_docs: list[dict[str, Any]]
+) -> str:
+    """Build the final agent prompt with memory/context evidence blocks."""
+    context_lines = [
+        (
+            f"- {fm.get('id', '?')} conf={fm.get('confidence', '?')}: "
+            f"{fm.get('title', '?')} :: {str(fm.get('_body', '')).strip()[:260]}"
+        )
+        for fm in hits
+    ]
+    context_block = "\n".join(context_lines) or "(no relevant memories)"
+
+    context_doc_lines = []
+    for row in context_docs:
+        doc_id = str(row.get("doc_id") or "")
+        title = str(row.get("title") or "")
+        body = str(row.get("body") or "").strip()
+        snippet = " ".join(body.split())[:260]
+        context_doc_lines.append(f"- {doc_id}: {title} :: {snippet}")
+    context_doc_block = (
+        "\n".join(context_doc_lines)
+        if context_doc_lines
+        else "(no context docs loaded)"
+    )
+
+    return (
+        "Answer the user question using the memory evidence below.\n"
+        "Retrieval contract:\n"
+        "- Lead handles retrieval strategy.\n"
+        "- Delegate parallel read-only Task explorers with dynamic fan-out.\n"
+        "- Search project-first, then global fallback.\n"
+        "- Return evidence with file paths and line refs.\n"
+        "- Use explicit ids/slugs only in related references (no wikilink syntax).\n"
+        "If memory is missing or uncertain, say that clearly.\n"
+        "Cite learning ids and context doc ids you used.\n\n"
+        f"Question:\n{question}\n\n"
+        f"Memory evidence:\n{context_block}\n"
+        f"\nContext docs (loaded only if needed):\n{context_doc_block}\n"
+    )
+
+
+def _load_context_docs_for_chat(
+    *,
+    question: str,
+    memory_hit_count: int,
+    result_limit: int,
+    project: str | None,
+) -> list[dict[str, Any]]:
+    """Load optional context docs for chat prompts (disabled in this build)."""
+    _ = (question, memory_hit_count, result_limit, project)
+    return []
+
+
+def _looks_like_auth_error(response: str) -> bool:
+    """Return whether the response text indicates auth configuration failure."""
+    text = str(response or "").lower()
+    return (
+        "failed to authenticate" in text
+        or "authentication_error" in text
+        or "oauth token has expired" in text
+        or "invalid api key" in text
+        or "unauthorized" in text
+    )
+
+
 def _cmd_chat(args: argparse.Namespace) -> int:
     """Run one chat query against the runtime agent."""
-    hits: list[Learning] = []
+    hits: list[dict[str, Any]] = []
     context_docs = _load_context_docs_for_chat(
         question=args.question,
         memory_hit_count=len(hits),
@@ -390,8 +439,12 @@ def _cmd_chat(args: argparse.Namespace) -> int:
                 {
                     "response": response,
                     "agent_session_id": session_id,
-                    "memory_ids": [learning.id for learning in hits],
-                    "context_doc_ids": [str(row.get("doc_id")) for row in context_docs if row.get("doc_id")],
+                    "memory_ids": [fm.get("id", "") for fm in hits],
+                    "context_doc_ids": [
+                        str(row.get("doc_id"))
+                        for row in context_docs
+                        if row.get("doc_id")
+                    ],
                     "fallback_used": False,
                 },
                 indent=2,
@@ -403,20 +456,8 @@ def _cmd_chat(args: argparse.Namespace) -> int:
     return 0
 
 
-def _looks_like_auth_error(response: str) -> bool:
-    """Return whether the response text indicates auth configuration failure."""
-    text = str(response or "").lower()
-    return (
-        "failed to authenticate" in text
-        or "authentication_error" in text
-        or "oauth token has expired" in text
-        or "invalid api key" in text
-        or "unauthorized" in text
-    )
-
-
 def _cmd_memory_reset(args: argparse.Namespace) -> int:
-    """Reset memory/meta/index trees for project/global roots."""
+    """Reset memory/index trees for project/global roots."""
     if not args.yes:
         _emit("Refusing to reset without --yes", file=sys.stderr)
         return 2
@@ -443,7 +484,9 @@ def _cmd_memory_reset(args: argparse.Namespace) -> int:
         seen.add(root)
         layout = build_memory_paths(root)
         result = reset_memory_root(layout)
-        summaries.append({"data_dir": str(root), "removed": result.get("removed") or []})
+        summaries.append(
+            {"data_dir": str(root), "removed": result.get("removed") or []}
+        )
 
     if args.json:
         _emit(json.dumps({"reset": summaries}, indent=2, ensure_ascii=True))
@@ -457,7 +500,7 @@ def _cmd_memory_reset(args: argparse.Namespace) -> int:
 def _cmd_status(args: argparse.Namespace) -> int:
     """Print runtime status summary across memory, queue, and services."""
     config = get_config()
-    memory_count = len(_memory_store().list_all())
+    memory_count = len(_list_memory_files(config.memory_dir))
     payload = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "connected_agents": get_connected_agents(config.platforms_path),
@@ -481,14 +524,24 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct the canonical Acreta command-line parser."""
-    parser = argparse.ArgumentParser(prog="acreta", description="Acreta minimal core CLI")
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("--json", action="store_true", help="Output JSON when supported")
+    parser = argparse.ArgumentParser(
+        prog="acreta", description="Acreta minimal core CLI"
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="Output JSON when supported"
+    )
     sub = parser.add_subparsers(dest="command")
 
     connect = sub.add_parser("connect", help="Manage connected agent platforms")
-    connect.add_argument("platform_name", nargs="?", help="Platform name, 'list', 'auto', or 'remove'")
-    connect.add_argument("extra_arg", nargs="?", help="Extra argument for connect sub-actions")
+    connect.add_argument(
+        "platform_name", nargs="?", help="Platform name, 'list', 'auto', or 'remove'"
+    )
+    connect.add_argument(
+        "extra_arg", nargs="?", help="Extra argument for connect sub-actions"
+    )
     connect.add_argument("--path", help="Custom platform path")
     connect.set_defaults(func=_cmd_connect)
 
@@ -545,41 +598,35 @@ def build_parser() -> argparse.ArgumentParser:
     memory_add.add_argument(
         "--primitive",
         default="learning",
-        choices=[item.value for item in PrimitiveType],
-        help="Primitive type to create",
+        choices=[item.value for item in MemoryType if item != MemoryType.summary],
+        help="Primitive type to create (decision or learning)",
     )
     memory_add.add_argument(
-        "--learning-type",
+        "--kind",
         default="insight",
-        choices=[item.value for item in LearningType],
-        help="Learning subtype for learning memories",
+        help="Learning kind: insight, procedure, friction, pitfall, preference",
     )
-    memory_add.add_argument("--kind", help="Learning kind")
-    memory_add.add_argument("--status", help="Decision status")
-    memory_add.add_argument("--decided-by", help="Decision owner: user|agent|both")
     memory_add.add_argument("--confidence", type=float, default=0.7)
-    memory_add.add_argument("--project")
     memory_add.add_argument("--tags")
-    memory_add.add_argument("--related", help="Comma-separated related ids or slugs")
-    memory_add.add_argument("--agent")
-    memory_add.add_argument("--session")
     memory_add.set_defaults(func=_cmd_memory_add)
-
-    memory_feedback = memory_sub.add_parser("feedback", help="Adjust feedback counters")
-    memory_feedback.add_argument("learning_id")
-    memory_feedback.add_argument("--useful", action="store_true")
-    memory_feedback.add_argument("--not-useful", action="store_true")
-    memory_feedback.set_defaults(func=_cmd_memory_feedback)
 
     memory_export = memory_sub.add_parser("export", help="Export memories")
     memory_export.add_argument("--project")
-    memory_export.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    memory_export.add_argument(
+        "--format", choices=["json", "markdown"], default="markdown"
+    )
     memory_export.add_argument("--output")
     memory_export.set_defaults(func=_cmd_memory_export)
 
-    memory_reset = memory_sub.add_parser("reset", help="Destructive reset of memory data for selected scope")
-    memory_reset.add_argument("--scope", choices=["project", "global", "both"], default="both")
-    memory_reset.add_argument("--yes", action="store_true", help="Confirm destructive reset")
+    memory_reset = memory_sub.add_parser(
+        "reset", help="Destructive reset of memory data for selected scope"
+    )
+    memory_reset.add_argument(
+        "--scope", choices=["project", "global", "both"], default="both"
+    )
+    memory_reset.add_argument(
+        "--yes", action="store_true", help="Confirm destructive reset"
+    )
     memory_reset.set_defaults(func=_cmd_memory_reset)
 
     chat = sub.add_parser("chat", help="Ask the central agent with memory context")
